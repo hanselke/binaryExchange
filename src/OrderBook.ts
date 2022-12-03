@@ -13,6 +13,7 @@ import {
   MerkleTree,
   Poseidon,
   Circuit,
+  UInt32
 } from 'snarkyjs';
 import {
   OffChainStorage,
@@ -20,7 +21,7 @@ import {
   MerkleWitness8,
 } from 'experimental-zkapp-offchain-storage';
 
-export { Order, OrderBook, MyMerkleWitness,LeafUpdate};
+export { Order, OrderBook, MyMerkleWitness,LeafUpdate, LocalOrder};
 
 class MyMerkleWitness extends MerkleWitness(8) {}
 class Order extends Struct({
@@ -48,7 +49,42 @@ class Order extends Struct({
     }
   }
 }
+class LocalOrder extends Struct({
+  orderIndex: Field, //leave 0 for null value
+  order: Order,
+  nextIndex: Field, //leave 0 for null value
+  prevIndex: Field, //leave 0 for null value
+}) {
+  // seems like some magic by defining this, it allows the system to deal with the switching from obj <> JSON ?
+  toJSON() {
+    return {
+      orderIndex: this.orderIndex.toString(),
+      order: {
+        maker: this.order.maker.toJSON(),
+        orderAmount: this.order.orderAmount.toJSON(),
+        orderPrice: this.order.orderPrice.toJSON(),
+        isSell: this.order.isSell.toBoolean()
+      },
+      nextIndex: this.nextIndex.toString(),
+      prevIndex: this.prevIndex.toString()
+    }
+  }
 
+  hash(): Field {
+    return Poseidon.hash([
+      this.orderIndex,
+      Poseidon.hash([
+        ...this.order.maker.toFields(),
+        this.order.orderAmount,
+        this.order.orderPrice,
+        this.order.isSell.toField(),
+      ]),
+      this.nextIndex,
+      this.prevIndex
+    ])
+  }
+
+}
 class LeafUpdate extends Struct({
   leaf: [Field],
   leafIsEmpty: Bool,

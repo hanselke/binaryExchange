@@ -1,4 +1,4 @@
-import { OrderBook, Order, MyMerkleWitness,LeafUpdate } from './OrderBook';
+import { OrderBook, Order, MyMerkleWitness,LeafUpdate,LocalOrder } from './OrderBook';
 import { OffChainStorage, MerkleWitness8 } from 'experimental-zkapp-offchain-storage';
 import {
   isReady,
@@ -30,16 +30,11 @@ describe('OrderBook.js', () => {
 
   
   
-    class LocalOrder extends Struct({
-      orderIndex: BigInt, //leave 0 for null value
-      order: Order,
-      nextIndex: BigInt, //leave 0 for null value
-      prevIndex: BigInt, //leave 0 for null value
-    }) {}
-    // this serves as our offchain in memory storage
-    let SellOrders: Map<BigInt, LocalOrder> = new Map<BigInt, LocalOrder>(); // orderIndex has key
 
-    let sellHead: bigint = 0n; // local storage of sellHead
+    // this serves as our offchain in memory storage
+    let SellOrders: Map<Field, LocalOrder> = new Map<Field, LocalOrder>(); // orderIndex has key
+
+    let sellHead: Field = Field(0); // local storage of sellHead
 
     let SellTree: MerkleTree;
     function addNewSellOrder(newOrder: LocalOrder) {
@@ -49,7 +44,7 @@ describe('OrderBook.js', () => {
       const newOrderIndex = newOrder.orderIndex;
       expect(SellOrders.get(newOrderIndex)).toBeFalsy;
       // console.log("currentSellHead",sellHead,sellHead.equals(Field(0)))
-      if (sellHead == 0n) {
+      if (sellHead == Field(0)) {
         // sellHead is empty, so we can assume nextIndex and PrevHash dont have to be handled
         console.log('sellHead is empty');
         sellHead = newOrder.orderIndex;
@@ -72,7 +67,7 @@ describe('OrderBook.js', () => {
             newOrderPrice
           );
           sellHeadPrice.assertGt(newOrderPrice);
-          newOrder.nextIndex = BigInt(sellHead); // since we are replacing sellHead, our nextIndex would be sellHead
+          newOrder.nextIndex = sellHead; // since we are replacing sellHead, our nextIndex would be sellHead
           SellOrders.set(newOrderIndex, newOrder); // store newOrder in local memory
           sellHeadOrder.prevIndex = newOrderIndex;
 
@@ -88,11 +83,11 @@ describe('OrderBook.js', () => {
           const sellHeadNext = getNextIndex(sellHead);
           if (sellHeadNext == undefined) {
             throw 'sellHeadNext undefined not supposed to happen';
-          } else if (sellHeadNext == 0n) {
+          } else if (sellHeadNext == Field(0)) {
             // sellHead doesnt have a next, we're next
             injectSellOrderAfter(newOrder, sellHead);
           } else {
-            const whereToInject: bigint | undefined =
+            const whereToInject: Field | undefined =
               findSellIndexToInsertAfter(newOrder, sellHeadNext);
             console.log('whereToInject', whereToInject);
             if (whereToInject == undefined) {
@@ -108,7 +103,7 @@ describe('OrderBook.js', () => {
       let returnIndex
       let i = BigInt(1);
       while (returnIndex == undefined) {
-        const currentIndexOrder = getSellOrderAtIndex(i)
+        const currentIndexOrder = getSellOrderAtIndex(Field(i))
         if (currentIndexOrder == undefined) {
           returnIndex = i;
         }
@@ -116,14 +111,14 @@ describe('OrderBook.js', () => {
       }
       return returnIndex
     }
-    function injectSellOrderAfter(newOrder: LocalOrder, injectIndex: bigint) {
+    function injectSellOrderAfter(newOrder: LocalOrder, injectIndex: Field) {
       // i want to inject new order, after inject next
 
       console.log('injectSellOrderAfter called', injectIndex);
 
       // deal with newOrders indexes
       const injectsNextIndex = getNextIndex(injectIndex);
-      if (injectsNextIndex !== undefined && injectsNextIndex !== BigInt(0)) {
+      if (injectsNextIndex !== undefined && injectsNextIndex !== Field(0)) {
         newOrder.nextIndex = injectsNextIndex;
 
         // deal with inject's next prev which is me
@@ -147,9 +142,9 @@ describe('OrderBook.js', () => {
     }
     function findSellIndexToInsertAfter(
       newOrder: LocalOrder,
-      currentIndex: bigint
-    ): bigint | undefined {
-      if (currentIndex == 0n) {
+      currentIndex: Field
+    ): Field | undefined {
+      if (currentIndex == Field(0)) {
         throw 'findSellIndexToInsertAfter deal with null index before this function';
       }
       const newOrderPrice = newOrder.order.orderPrice;
@@ -174,7 +169,7 @@ describe('OrderBook.js', () => {
       } else {
         console.log('newOrder is gte currentIndex');
         const nextIndex = getNextIndex(currentIndex);
-        if (nextIndex == undefined || nextIndex == 0n) {
+        if (nextIndex == undefined || nextIndex == Field(0)) {
           // nextIndex doesnt exist, so means we want to add AFTER current index
           return currentIndex;
         } else {
@@ -183,7 +178,7 @@ describe('OrderBook.js', () => {
         }
       }
     }
-    function getOrderPriceFromIndex(orderIndex: BigInt) {
+    function getOrderPriceFromIndex(orderIndex: Field) {
       return SellOrders.get(orderIndex)?.order.orderPrice;
     }
 
@@ -194,17 +189,17 @@ describe('OrderBook.js', () => {
     function getOrderAmount(order: LocalOrder) {
       return SellOrders.get(order.orderIndex)?.order.orderAmount;
     }
-    function getNextIndex(orderHead: BigInt) {
+    function getNextIndex(orderHead: Field) {
       return SellOrders.get(orderHead)?.nextIndex;
     }
 
-    function getPrevIndex(orderHead: BigInt) {
+    function getPrevIndex(orderHead: Field) {
       return SellOrders.get(orderHead)?.prevIndex;
     }
 
     function getSellOrderBook(): LocalOrder[] {
       let sellOrders: LocalOrder[] = [];
-      if (sellHead == 0n) {
+      if (sellHead == Field(0)) {
         console.log('getSellOrderBook sellHead is empty');
         return sellOrders;
       } else {
@@ -215,7 +210,7 @@ describe('OrderBook.js', () => {
 
         sellOrders.push(sellHeadOrder);
         let nextHead = getNextIndex(sellHead);
-        while (nextHead !== undefined && nextHead !== 0n) {
+        while (nextHead !== undefined && nextHead !== Field(0)) {
           const nextHeadOrder = SellOrders.get(nextHead);
           if (nextHeadOrder == undefined) {
             throw 'getSellOrderBook nextHeadOrder has no order';
@@ -228,7 +223,7 @@ describe('OrderBook.js', () => {
       }
     }
 
-    function getSellOrderAtIndex(index: BigInt): (LocalOrder|undefined) {
+    function getSellOrderAtIndex(index: Field): (LocalOrder|undefined) {
       return SellOrders.get(index);
     }
 
@@ -258,13 +253,13 @@ describe('OrderBook.js', () => {
     } 
 
 
-    async function addNewOrderToSellTree(leafIndex: bigint,newOrder: Order) {
+    async function addNewOrderToSellTree(leafIndex: Field,newOrder: Order) {
       // verify that Tree is synced with OrderBook
       const treeRoot = zkApp.sellTreeRoot.get();
       expect(SellTree.getRoot()).toStrictEqual(treeRoot);
 
       // get old leafIndex witness before insert
-      const leafWitness = new MyMerkleWitness(SellTree.getWitness(leafIndex));
+      const leafWitness = new MyMerkleWitness(SellTree.getWitness(leafIndex.toBigInt()));
       const priorLeafData = getSellOrderAtIndex(leafIndex);
       if (priorLeafData) {
         // order is already in db
@@ -275,10 +270,10 @@ describe('OrderBook.js', () => {
         // order is not already in current db
         //add to tree
         const newOrderHash = newOrder.hash()
-        SellTree.setLeaf(leafIndex,newOrderHash);
+        SellTree.setLeaf(leafIndex.toBigInt(),newOrderHash);
         // lets try to reconstuct new tree from old root and path
         //old root = treeRoot
-        const newWitness =  new MyMerkleWitness(SellTree.getWitness(leafIndex));
+        const newWitness =  new MyMerkleWitness(SellTree.getWitness(leafIndex.toBigInt()));
         if (newWitness.equals(leafWitness).toBoolean()) {
           console.log("bah wtf is this happening newWitness",JSON.stringify(newWitness,null,4))
           console.log("leafWitness",JSON.stringify(leafWitness,null,4))
@@ -307,8 +302,8 @@ describe('OrderBook.js', () => {
         // const newLocalOrder: LocalOrder = {
         //   orderIndex: getEmptySellOrderIndex(), //leave 0 for null value
         //   order: newOrder,
-        //   nextIndex: BigInt(0), //leave 0 for null value
-        //   prevIndex: BigInt(0), //leave 0 for null value
+        //   nextIndex: Field(0), //leave 0 for null value
+        //   prevIndex: Field(0), //leave 0 for null value
 
         // }
         // addNewSellOrder(newLocalOrder)
@@ -356,8 +351,8 @@ describe('OrderBook.js', () => {
     zkAppAddress = zkAppPrivateKey.toPublicKey();
     zkApp = new OrderBook(zkAppAddress);
     await deploy(zkApp, zkAppPrivateKey, deployer);
-    SellOrders = new Map<BigInt, LocalOrder>();
-    sellHead = 0n;
+    SellOrders = new Map<Field, LocalOrder>();
+    sellHead = Field(0);
     SellTree = new MerkleTree(8);
     SellTree.fill([Field(0)]);
     // use deployer as storage server
@@ -384,7 +379,7 @@ describe('OrderBook.js', () => {
       expect(storagePublicKey).toStrictEqual(deployer.toPublicKey());
     });
     it.only('should work with offchain storage server', async() => {
-      async function postData(height: number,orders: Array<[string, Order]>) {
+      async function postData(height: number,orders: LocalOrder[]) {
 
         // get it in Order[] and convert it into Array<[string, Order]>
         
@@ -395,7 +390,7 @@ describe('OrderBook.js', () => {
           },
           body: JSON.stringify({
             height,
-            items: orders,
+            orders,
             zkAppAddress: zkAppAddress.toJSON()
           })
         }).then((res) => res.json())
@@ -425,19 +420,42 @@ describe('OrderBook.js', () => {
         });
         return idx2fields
       }
-      function getEmptyMerkleArray(height: number): Array<[string, Order]>{
+      function getEmptyMerkleArray(height: number): LocalOrder[]{
       
-        let emptyTreeArray: Array<[string, Order]> = []
-        const emptyOrder = new Order({
-          maker: PublicKey.empty(),
-          orderAmount: Field(0),
-          orderPrice: Field(0),
-          isSell: Bool(false)
+        let emptyTreeArray: LocalOrder[] = []
+        // we keep  orderIndex for 0 as null address. do not store any orders at index0
+
+        // so we have to store next/prev indexes, because it carries the 'time' aspect of the price-time equation and isnt avail in order.
+        // we could directly just muck with the orderIndex actually, but it'll be harder to verify on chain??
+        // just gona implement linked list first then see how it performs
+        const emptyOrderTemplate = new LocalOrder({
+          orderIndex: Field(0),
+          order: new Order({
+            maker: PublicKey.empty(),
+            orderAmount: Field(0),
+            orderPrice: Field(0),
+            isSell: Bool(false)
+          }),
+          nextIndex: Field(0),
+          prevIndex: Field(0)
         })
-        expect(emptyOrder.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
-        for (let i=0;i<height;i++) {
-          
-          emptyTreeArray.push([BigInt(i).toString(),emptyOrder])
+
+
+        expect(emptyOrderTemplate.order.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
+
+        for (let i=1;i<=height;i++) {
+          const tmpOrder = new LocalOrder({
+            orderIndex: Field(i),
+            order: new Order({
+              maker: PublicKey.empty(),
+              orderAmount: Field(0),
+              orderPrice: Field(0),
+              isSell: Bool(false)
+            }),
+            nextIndex: Field(0),
+            prevIndex:  Field(0)
+          })
+          emptyTreeArray.push(tmpOrder)
         }
         return emptyTreeArray
       }
@@ -445,7 +463,7 @@ describe('OrderBook.js', () => {
         if (height > 256) {
           throw "offchain server doesnt support via hardcode value"
         }
-        const zkAppAddress58: string = zkAppAddress.toJSON()
+        // const zkAppAddress58: string = zkAppAddress.toJSON()
         const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
           BigInt(idx),
           strs.map((s) => Field.fromJSON(s)),
@@ -499,7 +517,7 @@ describe('OrderBook.js', () => {
         error: "no data for address"
       })
       const localTreeArray = getEmptyMerkleArray(SellTree.height);
-      console.log("localTreeArray",JSON.stringify(localTreeArray,null,4))
+      console.log("localTreeArray",localTreeArray)
       
       await postData(SellTree.height,localTreeArray)
 
@@ -522,8 +540,8 @@ describe('OrderBook.js', () => {
       // const aliceLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(1),
       //   order: aliceOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
 
       // emptyTreeArray[0][1] = [aliceOrder.hash()]
@@ -550,10 +568,10 @@ describe('OrderBook.js', () => {
       });
 
       const aliceLocalOrder: LocalOrder = new LocalOrder({
-        orderIndex: BigInt(1),
+        orderIndex: Field(1),
         order: aliceOrder,
-        nextIndex: BigInt(0),
-        prevIndex: BigInt(0),
+        nextIndex: Field(0),
+        prevIndex: Field(0),
       });
 
 
@@ -601,8 +619,8 @@ describe('OrderBook.js', () => {
       // const bobLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(2),
       //   order: bobOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
 
       // addNewSellOrder(bobLocalOrder);
@@ -637,8 +655,8 @@ describe('OrderBook.js', () => {
       // const janeLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(3),
       //   order: janeOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
 
       // addNewSellOrder(janeLocalOrder);
@@ -675,8 +693,8 @@ describe('OrderBook.js', () => {
       // const tomLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(4),
       //   order: tomOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
       // console.log('adding toms sell order');
       // addNewSellOrder(tomLocalOrder);
@@ -722,8 +740,8 @@ describe('OrderBook.js', () => {
       // const aliceLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(1),
       //   order: aliceOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
 
       // addNewSellOrder(aliceLocalOrder);
@@ -754,8 +772,8 @@ describe('OrderBook.js', () => {
       // const bobLocalOrder: LocalOrder = new LocalOrder({
       //   orderIndex: BigInt(2),
       //   order: bobOrder,
-      //   nextIndex: BigInt(0),
-      //   prevIndex: BigInt(0),
+      //   nextIndex: Field(0),
+      //   prevIndex: Field(0),
       // });
 
       // addNewSellOrder(bobLocalOrder);

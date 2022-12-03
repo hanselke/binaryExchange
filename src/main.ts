@@ -26,13 +26,11 @@ import { isReady, shutdown, Mina, PrivateKey, AccountUpdate } from 'snarkyjs';
   const zkAppInstance = new OrderBook(zkAppAddress);
   const deploy_txn = await Mina.transaction(deployerAccount, () => {
     AccountUpdate.fundNewAccount(deployerAccount);
-    zkAppInstance.deploy({ zkappKey: zkAppPrivateKey });
+    zkAppInstance.deploy();
     zkAppInstance.sign(zkAppPrivateKey);
   });
   await deploy_txn.send();
 
-  let currentOrder: Order = zkAppInstance.storedOrder.get();
-  console.log('currentOrder', currentOrder);
   //   // get the initial state of OrderBook after deployment
   //   const num0 = zkAppInstance.num.get();
   //   console.log('state after init:', num0.toString());
