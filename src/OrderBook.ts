@@ -39,6 +39,14 @@ class Order extends Struct({
       this.isSell.toField(),
     ]);
   }
+  toJSON() {
+    return {
+      maker: this.maker.toJSON(),
+      orderAmount: this.orderAmount.toString(),
+      orderPrice: this.orderPrice.toString(),
+      isSell: this.isSell.toBoolean()
+    }
+  }
 }
 
 class LeafUpdate extends Struct({
@@ -111,7 +119,5 @@ class OrderBook extends SmartContract {
     }
     Circuit.log("currentRoot equals storedNewRoot",currentRoot,storedNewRoot)
     currentRoot.assertEquals(storedNewRoot)
-
-
   }
 }

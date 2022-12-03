@@ -14,6 +14,7 @@ import {
   Circuit,
   Poseidon
 } from 'snarkyjs';
+import { fieldEncodings } from 'snarkyjs/dist/node/provable/binable';
 
 const storageServerAddress = "http://127.0.0.1:3001"
 
@@ -383,7 +384,10 @@ describe('OrderBook.js', () => {
       expect(storagePublicKey).toStrictEqual(deployer.toPublicKey());
     });
     it.only('should work with offchain storage server', async() => {
-      async function postData(height: number,items: Array<[string, string[]]>) {
+      async function postData(height: number,orders: Array<[string, Order]>) {
+
+        // get it in Order[] and convert it into Array<[string, Order]>
+        
         return await fetch(storageServerAddress + "/data", {
           method: "POST",
           headers: {
@@ -391,7 +395,7 @@ describe('OrderBook.js', () => {
           },
           body: JSON.stringify({
             height,
-            items,
+            items: orders,
             zkAppAddress: zkAppAddress.toJSON()
           })
         }).then((res) => res.json())
@@ -421,11 +425,19 @@ describe('OrderBook.js', () => {
         });
         return idx2fields
       }
-      function getEmptyMerkleArray(height: number) {
+      function getEmptyMerkleArray(height: number): Array<[string, Order]>{
       
-        let emptyTreeArray: Array<[string, string[]]> = []
+        let emptyTreeArray: Array<[string, Order]> = []
+        const emptyOrder = new Order({
+          maker: PublicKey.empty(),
+          orderAmount: Field(0),
+          orderPrice: Field(0),
+          isSell: Bool(false)
+        })
+        expect(emptyOrder.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
         for (let i=0;i<height;i++) {
-          emptyTreeArray.push([BigInt(i).toString(),[Field(0).toString()]])
+          
+          emptyTreeArray.push([BigInt(i).toString(),emptyOrder])
         }
         return emptyTreeArray
       }
@@ -456,6 +468,7 @@ describe('OrderBook.js', () => {
         }
         return tree.getRoot().toString()
       }
+
     //   export const get = async (serverAddress, zkAppAddress, height, root, UserXMLHttpRequest = null) => {
     //     const idx2fields = new Map();
     //     const tree = new MerkleTree(height);
@@ -481,24 +494,24 @@ describe('OrderBook.js', () => {
       const treeRoot = await zkApp.sellTreeRoot.get()
       expect(treeRoot).toStrictEqual(new MerkleTree(8).getRoot())
       expect(treeRoot).toStrictEqual(SellTree.getRoot())
-      console.log("SellTree",JSON.stringify(SellTree,null,4))
       // !! post data to server
-      console.log("SellTree",JSON.stringify(SellTree,null,4))
-      // expect(await getData(treeRoot.toString())).toStrictEqual({
-      //   error: "no data for address"
-      // })
-      const emptyTreeArray = getEmptyMerkleArray(SellTree.height);
-      console.log("emptyTreeArray",JSON.stringify(emptyTreeArray,null,4))
+      expect(await getData(treeRoot.toString())).toStrictEqual({
+        error: "no data for address"
+      })
+      const localTreeArray = getEmptyMerkleArray(SellTree.height);
+      console.log("localTreeArray",JSON.stringify(localTreeArray,null,4))
       
-      await postData(SellTree.height,emptyTreeArray)
+      await postData(SellTree.height,localTreeArray)
 
       // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
 
-      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
-      console.log("localCalculatedRoot",localCalculatedRoot)
-      expect(await getData(localCalculatedRoot)).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
-      // const idx2fields = await getData(treeRoot.toString())
-      // console.log("idx2fields",idx2fields)
+      // const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
+      // console.log("localCalculatedRoot",localCalculatedRoot)
+      // const idx2fields = await getData(localCalculatedRoot)
+      // expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
+
+      
+
       // // we know its empty, so lets just request store to see if its needed
       // const aliceOrder: Order = new Order({
       //   maker: alicePrivateKey.toPublicKey(),
@@ -512,9 +525,15 @@ describe('OrderBook.js', () => {
       //   nextIndex: BigInt(0),
       //   prevIndex: BigInt(0),
       // });
-      
-      // SellTree.setLeaf(1n,aliceOrder.hash())
-      // console.log("SellTree",SellTree)
+
+      // emptyTreeArray[0][1] = [aliceOrder.hash()]
+      // await postData(SellTree.height,emptyTreeArray)
+
+
+      // const localCalculatedNewRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
+      // const newIdx2fields = await getData(localCalculatedNewRoot)
+      // expect(newIdx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
+      // console.log("newIdx2fields",newIdx2fields)
     })
     it.skip('should not allow not makers to sign orders for makers', async () => {
 
