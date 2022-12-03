@@ -48,7 +48,7 @@ const saveFile = 'database.json';
 // ==============================================================================
 
 type data_obj_map = {
-  [root: string]: { rootNumber: number; items: Array<[string, string[]]> };
+  [root: string]: { rootNumber: number; orders: LocalOrder[] };
 };
 
 let database: {
@@ -215,7 +215,7 @@ app.get('/data', (req, res) => {
     if (database[zkAppAddress58]) {
       if (database[zkAppAddress58].root2data[root]) {
         res.json({
-          items: database[zkAppAddress58].root2data[root].items,
+          items: database[zkAppAddress58].root2data[root].orders,
         });
         return;
       } else {
