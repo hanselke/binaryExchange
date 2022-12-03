@@ -74,7 +74,7 @@ class LocalOrder extends Struct({
     return Poseidon.hash([
       this.orderIndex,
       Poseidon.hash([
-        ...this.order.maker.toFields(),
+        this.order.maker.toJSON(),
         this.order.orderAmount,
         this.order.orderPrice,
         this.order.isSell.toField(),

@@ -34,7 +34,7 @@ describe('OrderBook.js', () => {
     // this serves as our offchain in memory storage
     let SellOrders: Map<Field, LocalOrder> = new Map<Field, LocalOrder>(); // orderIndex has key
 
-    let sellHead: Field = Field(0); // local storage of sellHead
+    let sellHead: Field; // local storage of sellHead
 
     let SellTree: MerkleTree;
     function addNewSellOrder(newOrder: LocalOrder) {
@@ -400,23 +400,16 @@ describe('OrderBook.js', () => {
         // getData will fail if zkAppAddress hasnt been init
         
         const data = await fetch(storageServerAddress + `/data?root=${root}&zkAppAddress=${zkAppAddress.toJSON()}`).then((res) => res.json())
-        if (data.items) {
-          return convertMerkleArrayToIdex2Fields(data.items)
+        if (data.orders) {
+          return convertMerkleArrayToIdex2Fields(data.orders)
         }
         // throw errors upwards
         return data
       }
-      function convertMerkleArrayToIdex2Fields(items: Array<[string, string[]]>) {
-        const idx2fields = new Map<bigint, Field[]>();
-        const fieldItems: Array<[bigint, Field[]]> = items.map((item: any) => {
-          const strs = item[1];
-          return [
-              BigInt(item[0]),
-              strs.map((s: any) => Field.fromJSON(s)),
-            ]
-        })
-        fieldItems.forEach(([index, fields]) => {
-          idx2fields.set(index, fields);
+      function convertMerkleArrayToIdex2Fields(orders: LocalOrder[]) {
+        const idx2fields = new Map<Field, LocalOrder>();
+        orders.forEach((order) => {
+          idx2fields.set(order.orderIndex, order);
         });
         return idx2fields
       }

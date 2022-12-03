@@ -13,6 +13,7 @@ import {
   PublicKey,
   fetchAccount,
   Mina,
+  Bool
 } from 'snarkyjs';
 
 await isReady;
@@ -131,13 +132,40 @@ app.post('/data', (req, res) => {
 
   const idx2fields = new Map<bigint, LocalOrder>();
   orders.forEach((localOrder) => {
-    idx2fields.set(localOrder.orderIndex.toBigInt(),localOrder)
+    idx2fields.set(BigInt(localOrder.orderIndex.toString()),localOrder)
   })
   const tree = new MerkleTree(height);
 
   for (let [idx, localOrder] of idx2fields) {
-    tree.setLeaf(BigInt(idx), localOrder.hash());
+    console.log("got idx",idx,localOrder)
+    // idex.toBigInt doesnt seem to bloody work!!
+    // cant call localOrder.hash() wtf how come?
+    console.log("before setLeaf")
+    console.log("typeof idx",typeof idx),
+    
+
+    console.log("hash orderindex",Poseidon.hash([Field(localOrder.orderIndex)]))
+    console.log("hash publickey",Poseidon.hash([Field(localOrder.order.maker)])) //this prob deps on js toString??
+    console.log("hash order",Poseidon.hash([]))
+    console.log("hash order",Poseidon.hash([]))
+    console.log("hash order",Poseidon.hash([]))
+    console.log("hash order",Poseidon.hash([]))
+    console.log("hash order",Poseidon.hash([]))
+
+    tree.setLeaf(idx, Poseidon.hash([
+      Field(localOrder.orderIndex),
+      Poseidon.hash([
+        ...PublicKey.from(localOrder.order.maker).toFields(),
+        Field(localOrder.order.orderAmount),
+        Field(localOrder.order.orderPrice),
+        Bool(localOrder.order.isSell).toField(),
+      ]),
+      Field(localOrder.nextIndex),
+      Field(localOrder.prevIndex)
+    ]));
+    console.log("after setLeaf")
   }
+  console.log("idx2fields loop done")
 
   if (height > maxHeight) {
     res.status(400).send({
@@ -151,7 +179,7 @@ app.post('/data', (req, res) => {
 
   if (orders.length > 2 ** (height - 1)) {
     res.status(400).send({
-      error: 'too many items for height',
+      error: 'too many orders for height',
     });
     return;
   }
@@ -215,7 +243,7 @@ app.get('/data', (req, res) => {
     if (database[zkAppAddress58]) {
       if (database[zkAppAddress58].root2data[root]) {
         res.json({
-          items: database[zkAppAddress58].root2data[root].orders,
+          orders: database[zkAppAddress58].root2data[root].orders,
         });
         return;
       } else {
