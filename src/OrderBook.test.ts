@@ -1,4 +1,5 @@
 import { OrderBook, Order, MyMerkleWitness,LeafUpdate } from './OrderBook';
+import { OffChainStorage, MerkleWitness8 } from 'experimental-zkapp-offchain-storage';
 import {
   isReady,
   shutdown,
@@ -14,6 +15,8 @@ import {
   Poseidon
 } from 'snarkyjs';
 
+const storageServerAddress = "http://127.0.0.1:3001"
+
 describe('OrderBook.js', () => {
   let zkApp: OrderBook,
     zkAppPrivateKey: PrivateKey,
@@ -24,6 +27,8 @@ describe('OrderBook.js', () => {
     janePrivateKey: PrivateKey,
     tomPrivateKey: PrivateKey;
 
+  
+  
     class LocalOrder extends Struct({
       orderIndex: BigInt, //leave 0 for null value
       order: Order,
@@ -353,8 +358,12 @@ describe('OrderBook.js', () => {
     SellOrders = new Map<BigInt, LocalOrder>();
     sellHead = 0n;
     SellTree = new MerkleTree(8);
+    SellTree.fill([Field(0)]);
     // use deployer as storage server
     await initState(deployer,deployer.toPublicKey())
+
+
+
   });
 
   afterAll(() => {
@@ -373,13 +382,145 @@ describe('OrderBook.js', () => {
       const storagePublicKey = zkApp.storageServerPublicKey.get()
       expect(storagePublicKey).toStrictEqual(deployer.toPublicKey());
     });
+    it.only('should work with offchain storage server', async() => {
+      async function postData(height: number,items: Array<[string, string[]]>) {
+        return await fetch(storageServerAddress + "/data", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            height,
+            items,
+            zkAppAddress: zkAppAddress.toJSON()
+          })
+        }).then((res) => res.json())
+      }
 
+      async function getData(root: string) {
+        // getData will fail if zkAppAddress hasnt been init
+        
+        const data = await fetch(storageServerAddress + `/data?root=${root}&zkAppAddress=${zkAppAddress.toJSON()}`).then((res) => res.json())
+        if (data.items) {
+          return convertMerkleArrayToIdex2Fields(data.items)
+        }
+        // throw errors upwards
+        return data
+      }
+      function convertMerkleArrayToIdex2Fields(items: Array<[string, string[]]>) {
+        const idx2fields = new Map<bigint, Field[]>();
+        const fieldItems: Array<[bigint, Field[]]> = items.map((item: any) => {
+          const strs = item[1];
+          return [
+              BigInt(item[0]),
+              strs.map((s: any) => Field.fromJSON(s)),
+            ]
+        })
+        fieldItems.forEach(([index, fields]) => {
+          idx2fields.set(index, fields);
+        });
+        return idx2fields
+      }
+      function getEmptyMerkleArray(height: number) {
+      
+        let emptyTreeArray: Array<[string, string[]]> = []
+        for (let i=0;i<height;i++) {
+          emptyTreeArray.push([BigInt(i).toString(),[Field(0).toString()]])
+        }
+        return emptyTreeArray
+      }
+      function getTreeRootFromMerkleArray(height: number, items: Array<[string, string[]]>) {
+        if (height > 256) {
+          throw "offchain server doesnt support via hardcode value"
+        }
+        const zkAppAddress58: string = zkAppAddress.toJSON()
+        const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
+          BigInt(idx),
+          strs.map((s) => Field.fromJSON(s)),
+        ]);
+
+        const idx2fields = new Map<bigint, Field[]>();
+
+        fieldItems.forEach(([index, fields]) => {
+          idx2fields.set(index, fields);
+        });
+      
+        const tree = new MerkleTree(height);
+      
+        for (let [idx, fields] of idx2fields) {
+          tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
+        }
+
+        if (items.length > 2 ** (height - 1)) {
+          throw "too many items for height"
+        }
+        return tree.getRoot().toString()
+      }
+    //   export const get = async (serverAddress, zkAppAddress, height, root, UserXMLHttpRequest = null) => {
+    //     const idx2fields = new Map();
+    //     const tree = new MerkleTree(height);
+    //     if (tree.getRoot().equals(root).toBoolean()) {
+    //         return idx2fields;
+    //     }
+    //     var params = 'zkAppAddress=' + zkAppAddress.toBase58() + '&root=' + root.toString();
+    //     const response = await makeRequest('GET', serverAddress + '/data?' + params, null, UserXMLHttpRequest);
+    //     const data = JSON.parse(response);
+    //     printCaution();
+    //     const items = data.items;
+    //     const fieldItems = items.map(([idx, strs]) => [
+    //         idx,
+    //         strs.map((s) => Field.fromJSON(s)),
+    //     ]);
+    //     fieldItems.forEach(([index, fields]) => {
+    //         idx2fields.set(BigInt(index), fields);
+    //     });
+    //     return idx2fields;
+    // };
+      // getting existing tree
+
+      const treeRoot = await zkApp.sellTreeRoot.get()
+      expect(treeRoot).toStrictEqual(new MerkleTree(8).getRoot())
+      expect(treeRoot).toStrictEqual(SellTree.getRoot())
+      console.log("SellTree",JSON.stringify(SellTree,null,4))
+      // !! post data to server
+      console.log("SellTree",JSON.stringify(SellTree,null,4))
+      // expect(await getData(treeRoot.toString())).toStrictEqual({
+      //   error: "no data for address"
+      // })
+      const emptyTreeArray = getEmptyMerkleArray(SellTree.height);
+      console.log("emptyTreeArray",JSON.stringify(emptyTreeArray,null,4))
+      
+      await postData(SellTree.height,emptyTreeArray)
+
+      // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
+
+      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
+      console.log("localCalculatedRoot",localCalculatedRoot)
+      expect(await getData(localCalculatedRoot)).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
+      // const idx2fields = await getData(treeRoot.toString())
+      // console.log("idx2fields",idx2fields)
+      // // we know its empty, so lets just request store to see if its needed
+      // const aliceOrder: Order = new Order({
+      //   maker: alicePrivateKey.toPublicKey(),
+      //   orderAmount: Field(100),
+      //   orderPrice: Field(100),
+      //   isSell: Bool(true),
+      // });
+      // const aliceLocalOrder: LocalOrder = new LocalOrder({
+      //   orderIndex: BigInt(1),
+      //   order: aliceOrder,
+      //   nextIndex: BigInt(0),
+      //   prevIndex: BigInt(0),
+      // });
+      
+      // SellTree.setLeaf(1n,aliceOrder.hash())
+      // console.log("SellTree",SellTree)
+    })
     it.skip('should not allow not makers to sign orders for makers', async () => {
 
     });
 
-    it.only('should be able to store sell orders properly', async () => {
-
+    it('should be able to store sell orders properly', async () => {
 
 
       const aliceOrder: Order = new Order({
