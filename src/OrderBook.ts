@@ -69,7 +69,6 @@ class LocalOrder extends Struct({
       prevIndex: this.prevIndex.toString()
     }
   }
-
   hash(): Field {
     return Poseidon.hash([
       this.orderIndex,
@@ -155,5 +154,9 @@ class OrderBook extends SmartContract {
     }
     Circuit.log("currentRoot equals storedNewRoot",currentRoot,storedNewRoot)
     currentRoot.assertEquals(storedNewRoot)
+  }
+
+  @method hashOrder(order: Order) {
+    return order.hash()
   }
 }

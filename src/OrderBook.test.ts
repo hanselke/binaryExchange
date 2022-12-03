@@ -452,33 +452,33 @@ describe('OrderBook.js', () => {
         }
         return emptyTreeArray
       }
-      function getTreeRootFromMerkleArray(height: number, items: Array<[string, string[]]>) {
-        if (height > 256) {
-          throw "offchain server doesnt support via hardcode value"
-        }
-        // const zkAppAddress58: string = zkAppAddress.toJSON()
-        const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
-          BigInt(idx),
-          strs.map((s) => Field.fromJSON(s)),
-        ]);
+      // function getTreeRootFromMerkleArray(height: number, items: Array<[string, string[]]>) {
+      //   if (height > 256) {
+      //     throw "offchain server doesnt support via hardcode value"
+      //   }
+      //   // const zkAppAddress58: string = zkAppAddress.toJSON()
+      //   const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
+      //     BigInt(idx),
+      //     strs.map((s) => Field.fromJSON(s)),
+      //   ]);
 
-        const idx2fields = new Map<bigint, Field[]>();
+      //   const idx2fields = new Map<bigint, Field[]>();
 
-        fieldItems.forEach(([index, fields]) => {
-          idx2fields.set(index, fields);
-        });
+      //   fieldItems.forEach(([index, fields]) => {
+      //     idx2fields.set(index, fields);
+      //   });
       
-        const tree = new MerkleTree(height);
+      //   const tree = new MerkleTree(height);
       
-        for (let [idx, fields] of idx2fields) {
-          tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
-        }
+      //   for (let [idx, fields] of idx2fields) {
+      //     tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
+      //   }
 
-        if (items.length > 2 ** (height - 1)) {
-          throw "too many items for height"
-        }
-        return tree.getRoot().toString()
-      }
+      //   if (items.length > 2 ** (height - 1)) {
+      //     throw "too many items for height"
+      //   }
+      //   return tree.getRoot().toString()
+      // }
 
     //   export const get = async (serverAddress, zkAppAddress, height, root, UserXMLHttpRequest = null) => {
     //     const idx2fields = new Map();

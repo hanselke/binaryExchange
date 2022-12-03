@@ -15,9 +15,9 @@ import {
   Mina,
   Bool
 } from 'snarkyjs';
-
-await isReady;
 import { OrderBook, Order, MyMerkleWitness,LeafUpdate,LocalOrder } from './OrderBook';
+await isReady;
+
 console.log(
   'CAUTION: This project is in development and not to be relied upon to guarantee storage in production environments.'
 );
@@ -126,47 +126,14 @@ console.log('Server using public key', serverPublicKey.toBase58());
 app.post('/data', (req, res) => {
   const height: number = req.body.height;
 
-  const orders: LocalOrder[] = req.body.orders;
+  const orders = req.body.orders;
   const zkAppAddress58: string = req.body.zkAppAddress;
   console.log('post data called', height, orders);
-
-  const idx2fields = new Map<bigint, LocalOrder>();
-  orders.forEach((localOrder) => {
-    idx2fields.set(BigInt(localOrder.orderIndex.toString()),localOrder)
-  })
   const tree = new MerkleTree(height);
-
-  for (let [idx, localOrder] of idx2fields) {
-    console.log("got idx",idx,localOrder)
-    // idex.toBigInt doesnt seem to bloody work!!
-    // cant call localOrder.hash() wtf how come?
-    console.log("before setLeaf")
-    console.log("typeof idx",typeof idx),
-    
-
-    console.log("hash orderindex",Poseidon.hash([Field(localOrder.orderIndex)]))
-    console.log("hash publickey",Poseidon.hash([Field(localOrder.order.maker)])) //this prob deps on js toString??
-    console.log("hash order",Poseidon.hash([]))
-    console.log("hash order",Poseidon.hash([]))
-    console.log("hash order",Poseidon.hash([]))
-    console.log("hash order",Poseidon.hash([]))
-    console.log("hash order",Poseidon.hash([]))
-
-    tree.setLeaf(idx, Poseidon.hash([
-      Field(localOrder.orderIndex),
-      Poseidon.hash([
-        ...PublicKey.from(localOrder.order.maker).toFields(),
-        Field(localOrder.order.orderAmount),
-        Field(localOrder.order.orderPrice),
-        Bool(localOrder.order.isSell).toField(),
-      ]),
-      Field(localOrder.nextIndex),
-      Field(localOrder.prevIndex)
-    ]));
-    console.log("after setLeaf")
-  }
-  console.log("idx2fields loop done")
-
+  orders.forEach((localOrder: LocalOrder) => {
+    tree.setLeaf(localOrder.orderIndex.toBigInt(), localOrder.hash())
+  })
+  console.log("set tree leafs done")
   if (height > maxHeight) {
     res.status(400).send({
       error:
