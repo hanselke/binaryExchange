@@ -541,14 +541,13 @@ describe('OrderBook.js', () => {
         prevIndex: Field(0),
       });
       console.log("localTreeArray",localTreeArray)
-      // localTreeArray[0][1] = [LocalOrder.toFields()]
-      // await postData(SellTree.height,emptyTreeArray)
+      localTreeArray[0] = aliceLocalOrder
+      await postData(SellTree.height,localTreeArray)
 
-
-      // const localCalculatedNewRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
-      // const newIdx2fields = await getData(localCalculatedNewRoot)
-      // expect(newIdx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
-      // console.log("newIdx2fields",newIdx2fields)
+      const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
+      console.log("localCalculatedRoot2",localCalculatedRoot2)
+      const remoteTreeArray2 = await getData(localCalculatedRoot2)
+      expect(remoteTreeArray2).toStrictEqual(localTreeArray)
     })
     it.skip('should not allow not makers to sign orders for makers', async () => {
 
