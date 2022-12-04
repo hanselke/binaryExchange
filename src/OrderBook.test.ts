@@ -411,22 +411,19 @@ describe('OrderBook.js', () => {
 
         // handle local SellTree data update
         expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
-        const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, fields]) => [
-          BigInt(idx),
-          fields,
-        ]);
-        const idx2fields = new Map<bigint, Field[]>();
-
-        fieldItems.forEach(([index, fields]) => {
-          idx2fields.set(index, fields);
-        });
-        console.log("idx2fields",idx2fields)
-        for (let [idx, fields] of idx2fields) {
-          console.log("idx2fields",idx,fields)
-          SellTree.setLeaf(BigInt(idx), Poseidon.hash(fields));
-        }
-        console.log("SellTree root",SellTree.getRoot().toString())
-        return [Field.fromJSON(postRes.result[0]),Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))]
+        const newRootNumber = Field.fromJSON(postRes.result[0])
+        const rootSignature = Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))
+        orders.forEach((order) => {
+          SellTree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
+        })
+        await updateSellRoot(
+          deployer,
+          SellTree.getRoot(),
+          newRootNumber,
+          rootSignature
+        )
+        expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+        return [newRootNumber,rootSignature]
       }
 
       async function getData(root: string) {
@@ -564,11 +561,10 @@ describe('OrderBook.js', () => {
 
       localTreeArray[0] = aliceLocalOrder
       console.log("SellTree root before add",SellTree.getRoot().toString())
-      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
       const oldRootNumber = zkApp.SellStorageNumber.get()
+      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
       expect(oldRootNumber.add(1)).toStrictEqual(newRootNumber)
       const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
-
       const remoteTreeArray2 = await getData(localCalculatedRoot2)
       expect(remoteTreeArray2).toStrictEqual(localTreeArray)
 
@@ -579,12 +575,7 @@ describe('OrderBook.js', () => {
       console.log("rootSignature",rootSignature.toFields().toString())
       expect(rootSignature.verify(storageServerPublicKey,[SellTree.getRoot(),newRootNumber]).toBoolean()).toBe(true)
 
-      updateSellRoot(
-        deployer,
-        SellTree.getRoot(),
-        newRootNumber,
-        rootSignature
-      )
+
 
     })
     it.skip('should not allow not makers to sign orders for makers', async () => {

@@ -142,8 +142,11 @@ class OrderBook extends SmartContract {
     storedNewRootNumber: Field,
     storedNewRootSignature: Signature
   ) {
-    let storageServerPublicKey = this.StorageServerPublicKey.get()
+    let storageServerPublicKey = this.StorageServerPublicKey.get();
     this.StorageServerPublicKey.assertEquals(storageServerPublicKey);
+    let SellStorageNumber = this.SellStorageNumber.get();
+    this.SellStorageNumber.assertEquals(SellStorageNumber);
+    SellStorageNumber.add(1).assertEquals(storedNewRootNumber);
     storedNewRootSignature.verify(storageServerPublicKey, [newRoot,storedNewRootNumber]).assertTrue();
     this.SellTreeRoot.set(newRoot);
     this.SellStorageNumber.set(storedNewRootNumber);
