@@ -137,7 +137,17 @@ class OrderBook extends SmartContract {
     
     this.SellTreeRoot.set(emptyTreeRoot);
   }
-
+  @method TMPupdateSellRoot(
+    newRoot: Field,
+    storedNewRootNumber: Field,
+    storedNewRootSignature: Signature
+  ) {
+    let storageServerPublicKey = this.StorageServerPublicKey.get()
+    this.StorageServerPublicKey.assertEquals(storageServerPublicKey);
+    storedNewRootSignature.verify(storageServerPublicKey, [newRoot,storedNewRootNumber]).assertTrue();
+    this.SellTreeRoot.set(newRoot);
+    this.SellStorageNumber.set(storedNewRootNumber);
+  }
   @method updateSellRoot(
     leafIsEmpty: Bool,
     oldNum: Field,
@@ -157,7 +167,7 @@ class OrderBook extends SmartContract {
     Circuit.log("OrderBook:updateSellRoot:storedNumber ",storedNumber)
     Circuit.log("OrderBook:updateSellRoot:StorageServerPublicKey ",StorageServerPublicKey)
     Circuit.log("OrderBook:updateSellRoot:storedRoot ",storedRoot)
-    
+    Circuit.log("OrderBook:updateSellRoot:path ",path)
     let leaf = [oldNum];
     let newLeaf = [num];
 
@@ -173,7 +183,8 @@ class OrderBook extends SmartContract {
         leafWitness: path,
       },
     ];
-    console.log("updates",updates);
+    Circuit.log("OrderBook:updateSellRoot:updates",updates);
+    Circuit.log("OrderBook:updateSellRoot:storedNewRootNumber",storedNewRootNumber);
     const storedNewRoot = assertRootUpdateValid(
       StorageServerPublicKey,
       storedNumber,
@@ -182,7 +193,7 @@ class OrderBook extends SmartContract {
       storedNewRootNumber,
       storedNewRootSignature
     );
-
+    Circuit.log("OrderBook:updateSellRoot:assertRootUpdateValid passed storedNewRoot",storedNewRoot)
     this.SellTreeRoot.set(storedNewRoot);
     this.SellStorageNumber.set(storedNewRootNumber);
   }

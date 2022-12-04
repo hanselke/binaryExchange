@@ -37,16 +37,20 @@ export const assertRootUpdateValid = (
   storedNewRootSignature: Signature
 ) => {
   let emptyLeaf = Field(0);
-
+  Circuit.log("offchainStorage:assertRootUpdateValid:serverPublicKey",serverPublicKey,serverPublicKey.toJSON())
+  Circuit.log("offchainStorage:assertRootUpdateValid:rootNumber",rootNumber,rootNumber.toString())
+  Circuit.log("offchainStorage:assertRootUpdateValid:root",root,root.toString())
+  Circuit.log("offchainStorage:assertRootUpdateValid:storedNewRootNumber",storedNewRootNumber,storedNewRootNumber.toString())
+  Circuit.log("offchainStorage:assertRootUpdateValid:storedNewRootSignature",storedNewRootSignature,storedNewRootSignature.toString())
   var currentRoot = root;
   for (var i = 0; i < updates.length; i++) {
     const { leaf, leafIsEmpty, newLeaf, newLeafIsEmpty, leafWitness } =
       updates[i];
-    console.log("assertRootUpdateValidbefore leafHash")
     // check the root is starting from the correct state
+    Circuit.log("offchainStorage:assertRootUpdateValid:looping",i,leaf, leafIsEmpty, newLeaf, newLeafIsEmpty, leafWitness)
     let leafHash = Circuit.if(leafIsEmpty, emptyLeaf, Poseidon.hash(leaf));
     leafWitness.calculateRoot(leafHash).assertEquals(currentRoot);
-    console.log("assertRootUpdateValid: root verified")
+    Circuit.log("offchainStorage:assertRootUpdateValid:looping leafWitness passed")
     // calculate the new root after setting the leaf
     let newLeafHash = Circuit.if(
       newLeafIsEmpty,
@@ -54,12 +58,12 @@ export const assertRootUpdateValid = (
       Poseidon.hash(newLeaf)
     );
     currentRoot = leafWitness.calculateRoot(newLeafHash);
-    console.log("assertRootUpdateValid: currentRoot",currentRoot)
+    Circuit.log("offchainStorage:assertRootUpdateValid:looping:currentRoot",currentRoot)
   }
 
   const storedNewRoot = currentRoot;
-  console.log("serverPublicKey",serverPublicKey)
   // check the server is storing the stored new root
+  Circuit.log("offchainStorage:assertRootUpdateValid:before verifying final sig")
   storedNewRootSignature
     .verify(serverPublicKey, [storedNewRoot, storedNewRootNumber])
     .assertTrue();

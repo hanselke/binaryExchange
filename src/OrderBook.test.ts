@@ -242,19 +242,13 @@ describe('OrderBook.js', () => {
 
     async function updateSellRoot(
     signerKey: PrivateKey,
-    leafIsEmpty: Bool,
-    oldNum: Field,
-    num: Field,
-    path: MyMerkleWitness,
+    newRoot: Field,
     storedNewRootNumber: Field,
     storedNewRootSignature: Signature
     ) {
       let tx = await Mina.transaction(signerKey, () => {
-        zkApp.updateSellRoot(  
-          leafIsEmpty,
-          oldNum,
-          num,
-          path,
+        zkApp.TMPupdateSellRoot(  
+          newRoot,
           storedNewRootNumber,
           storedNewRootSignature);
       });
@@ -587,10 +581,7 @@ describe('OrderBook.js', () => {
 
       updateSellRoot(
         deployer,
-        Bool(true),
-        Poseidon.hash(localTreeArray[0].toFields()),
-        Poseidon.hash(aliceLocalOrder.toFields()),
-        new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex.toBigInt())),
+        SellTree.getRoot(),
         newRootNumber,
         rootSignature
       )
