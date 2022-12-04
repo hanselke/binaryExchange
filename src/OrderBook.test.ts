@@ -366,7 +366,7 @@ describe('OrderBook.js', () => {
   });
   describe('OrderBook()', () => {
 
-
+  
     it('should deploy', async () => {
       const unfilledHead = zkApp.sellTreeRoot.get();
       expect(unfilledHead).toStrictEqual(new MerkleTree(8).getRoot());
@@ -381,10 +381,12 @@ describe('OrderBook.js', () => {
       async function postData(height: number,orders: LocalOrder[]) {
 
         // need to convert to items: Array<[string, string[]]
-        console.log("postData called",orders[0].toJSON())
+        // console.log("postData called",orders[0].toJSON(),orders[0].hash())
         const items = orders.map((order) => {
-          return [order.orderIndex.toString(),order.toJSON()]
+          return [order.orderIndex.toString(),order.toFields()]
         })
+      
+
         return await fetch(storageServerAddress + "/data", {
           method: "POST",
           headers: {
@@ -512,16 +514,16 @@ describe('OrderBook.js', () => {
         error: "no data for address"
       })
       const localTreeArray = getEmptyMerkleArray(SellTree.height);
-      console.log("localTreeArray",localTreeArray)
+      // console.log("localTreeArray",localTreeArray)
       
       await postData(SellTree.height,localTreeArray)
 
       // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
 
-      // const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
-      // console.log("localCalculatedRoot",localCalculatedRoot)
-      // const idx2fields = await getData(localCalculatedRoot)
-      // expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
+      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
+      console.log("localCalculatedRoot",localCalculatedRoot)
+      const idx2fields = await getData(localCalculatedRoot)
+      expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
 
       
 

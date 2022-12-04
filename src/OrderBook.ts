@@ -70,19 +70,30 @@ class LocalOrder extends Struct({
     }
   }
   hash(): Field {
+    const orderHash = Poseidon.hash([
+      ...this.order.maker.toFields(),
+      this.order.orderAmount,
+      this.order.orderPrice,
+      this.order.isSell.toField(),
+    ])
     return Poseidon.hash([
       this.orderIndex,
-      Poseidon.hash([
-        this.order.maker.toJSON(),
-        this.order.orderAmount,
-        this.order.orderPrice,
-        this.order.isSell.toField(),
-      ]),
+      orderHash,
       this.nextIndex,
       this.prevIndex
     ])
   }
-
+  toFields(): Field[] {
+    return [
+      this.orderIndex,
+      ...this.order.maker.toFields(),
+      this.order.orderAmount,
+      this.order.orderPrice,
+      this.order.isSell.toField(),
+      this.nextIndex,
+      this.prevIndex
+    ]
+  }
 }
 class LeafUpdate extends Struct({
   leaf: [Field],

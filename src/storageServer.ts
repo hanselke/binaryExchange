@@ -126,7 +126,7 @@ app.post('/data', (req, res) => {
   const height: number = req.body.height;
   const items: Array<[string, string[]]> = req.body.items;
   const zkAppAddress58: string = req.body.zkAppAddress;
-  console.log('post data called', height, zkAppAddress58);
+  console.log('post data called', height, items);
   const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
     BigInt(idx),
     strs.map((s) => Field.fromJSON(s)),
