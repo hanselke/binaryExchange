@@ -133,8 +133,6 @@ class OrderBook extends SmartContract {
     this.SellStorageNumber.set(Field.zero);
     const emptyTreeRoot = Field("14472842460125086645444909368571209079194991627904749620726822601198914470820");
     //precalculated empty merkle tree of LocalOrder[] height 8
-
-    
     this.SellTreeRoot.set(emptyTreeRoot);
   }
   @method TMPupdateSellRoot(
