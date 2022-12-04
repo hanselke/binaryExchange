@@ -383,7 +383,7 @@ describe('OrderBook.js', () => {
         // need to convert to items: Array<[string, string[]]
         // console.log("postData called",orders[0].toJSON(),orders[0].hash())
         const items = convertOrdersIntoItems(orders);
-        console.log("items",JSON.stringify(items,null,4))
+        // console.log("items",JSON.stringify(items,null,4))
 
         return await fetch(storageServerAddress + "/data", {
           method: "POST",
@@ -402,8 +402,9 @@ describe('OrderBook.js', () => {
         // getData will fail if zkAppAddress hasnt been init
         
         const data = await fetch(storageServerAddress + `/data?root=${root}&zkAppAddress=${zkAppAddress.toJSON()}`).then((res) => res.json())
-        if (data.orders) {
-          return convertMerkleArrayToIdex2Fields(data.orders)
+        // console.log("getData got data",JSON.stringify(data,null,4))
+        if (data.items) {
+          return convertItemsIntoOrders(data.items)
         }
         // throw errors upwards
         return data
@@ -461,6 +462,26 @@ describe('OrderBook.js', () => {
         })
       } 
 
+      function convertItemsIntoOrders(items: Array<[string,string[]]>): LocalOrder[] {
+        // items has extra item[0] thjat is replicated in LocalOrder.orderIndex
+        return items.map((item) => {
+          return new LocalOrder({
+            orderIndex: Field(item[1][0]),
+            order: new Order({
+              maker: PublicKey.from({
+                x: Field(item[1][1]),
+                isOdd: Bool(item[1][2] == "1")
+              }),
+              orderAmount: Field(item[1][3]),
+              orderPrice: Field(item[1][4]),
+              isSell: Bool(item[1][5] == "1")
+            }),
+            nextIndex: Field(item[1][6]),
+            prevIndex: Field(item[1][7])
+          })
+        })
+      }
+
       function getTreeRootFromMerkleArray(height: number, orders:LocalOrder[]) {
         console.log("getTreeRootFromMerkleArray called")
 
@@ -473,7 +494,7 @@ describe('OrderBook.js', () => {
         const tree = new MerkleTree(height);
       
         for (let order of orders) {
-          console.log("orders loop",order)
+          // console.log("orders loop",order)
           tree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
         }
 
@@ -493,15 +514,17 @@ describe('OrderBook.js', () => {
         error: "no data for address"
       })
       const localTreeArray = getEmptyMerkleArray(SellTree.height);
-      // console.log("localTreeArray",localTreeArray)
+      
       
       await postData(SellTree.height,localTreeArray)
 
       // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
       const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
       console.log("localCalculatedRoot",localCalculatedRoot)
-      const idx2fields = await getData(localCalculatedRoot)
-      expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(localTreeArray))
+      const remoteTreeArray = await getData(localCalculatedRoot)
+      console.log("remoteTreeArray",remoteTreeArray[0].order.isSell,remoteTreeArray[0].order.isSell.toBoolean())
+      console.log("localTreeArray",localTreeArray[0].order.isSell,localTreeArray[0].order.isSell.toBoolean())
+      expect(remoteTreeArray).toStrictEqual(localTreeArray)
       console.log("getdata is correct")
 
       // // we know its empty, so lets just request store to see if its needed
