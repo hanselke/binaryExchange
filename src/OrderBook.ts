@@ -13,7 +13,8 @@ import {
   MerkleTree,
   Poseidon,
   Circuit,
-  UInt32
+  UInt32,
+  arrayProp
 } from 'snarkyjs';
 import {
   Update,
@@ -140,6 +141,7 @@ class OrderBook extends SmartContract {
     storedNewRootNumber: Field,
     storedNewRootSignature: Signature
   ) {
+    // need the leaf rollup method to actually do fillOrder?
     let storageServerPublicKey = this.StorageServerPublicKey.get();
     this.StorageServerPublicKey.assertEquals(storageServerPublicKey);
     let SellStorageNumber = this.SellStorageNumber.get();
@@ -197,5 +199,33 @@ class OrderBook extends SmartContract {
     Circuit.log("OrderBook:updateSellRoot:assertRootUpdateValid passed storedNewRoot",storedNewRoot)
     this.SellTreeRoot.set(storedNewRoot);
     this.SellStorageNumber.set(storedNewRootNumber);
+  }
+
+  @method fillSellOrder1(
+    order: Order,
+    fill: Order,
+    witness: MyMerkleWitness
+  ) {
+    // if we get both orders, we can tell if they work. without caring about sellHead order.
+    // if user wants to do it his problem?
+
+    //however we are probably better off, trying to get the entire offchain server to accept orders to begin with, that just update this hash.
+    const sellTreeRoot = this.SellTreeRoot.get();
+    this.SellTreeRoot.assertEquals(sellTreeRoot);
+    Circuit.log("OrderBook:fillOrder1:order",order);
+    Circuit.log("OrderBook:fillOrder1:fill",fill);
+    Circuit.log("OrderBook:fillOrder1:witness",witness);
+    Circuit.log("OrderBook:fillOrder1:sellTreeRoot",sellTreeRoot);
+
+    // ASSUMING im ignoring security, just get the merkles to work first
+
+    // i need to verify that all the fills are in the merkle root
+    
+
+    witness.calculateRoot(fill).assertEquals(sellTreeRoot)
+    
+    Circuit.log("OrderBook:fillOrder1:fills are part of sellTree root");
+
+
   }
 }

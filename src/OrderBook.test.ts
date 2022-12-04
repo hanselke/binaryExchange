@@ -342,6 +342,148 @@ describe('OrderBook.js', () => {
     console.log("assertRootUpdateValid failed",currentRoot.toString(),storedNewRoot.toString(),JSON.stringify(updates,null,4))
     throw "RootUpdate not valid"
   };
+  async function postData(height: number,orders: LocalOrder[]): Promise<[Field,Signature]> {
+
+    // need to convert to items: Array<[string, string[]]
+    // console.log("postData called",orders[0].toJSON(),orders[0].hash())
+    const items = convertOrdersIntoItems(orders);
+    // console.log("items",JSON.stringify(items,null,4))
+    
+    const postRes = await fetch(storageServerAddress + "/data", {
+      method: "POST",
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        height,
+        items,
+        zkAppAddress: zkAppAddress.toJSON()
+      })
+    }).then((res) => res.json())
+
+    // handle local SellTree data update
+    expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+    const newRootNumber = Field.fromJSON(postRes.result[0])
+    const rootSignature = Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))
+    orders.forEach((order) => {
+      SellTree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
+    })
+    await updateSellRoot(
+      deployer,
+      SellTree.getRoot(),
+      newRootNumber,
+      rootSignature
+    )
+    expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+    return [newRootNumber,rootSignature]
+  }
+
+  async function getData(root: string) {
+    // getData will fail if zkAppAddress hasnt been init
+    
+    const data = await fetch(storageServerAddress + `/data?root=${root}&zkAppAddress=${zkAppAddress.toJSON()}`).then((res) => res.json())
+    // console.log("getData got data",JSON.stringify(data,null,4))
+    if (data.items) {
+      return convertItemsIntoOrders(data.items)
+    }
+    // throw errors upwards
+    return data
+  }
+  function convertMerkleArrayToIdex2Fields(orders: LocalOrder[]) {
+    const idx2fields = new Map<Field, LocalOrder>();
+    orders.forEach((order) => {
+      idx2fields.set(order.orderIndex, order);
+    });
+    return idx2fields
+  }
+  function getEmptyMerkleArray(height: number): LocalOrder[]{
+  
+    let emptyTreeArray: LocalOrder[] = []
+    // we keep  orderIndex for 0 as null address. do not store any orders at index0
+
+    // so we have to store next/prev indexes, because it carries the 'time' aspect of the price-time equation and isnt avail in order.
+    // we could directly just muck with the orderIndex actually, but it'll be harder to verify on chain??
+    // just gona implement linked list first then see how it performs
+    const emptyOrderTemplate = new LocalOrder({
+      orderIndex: Field(0),
+      order: new Order({
+        maker: PublicKey.empty(),
+        orderAmount: Field(0),
+        orderPrice: Field(0),
+        isSell: Bool(false)
+      }),
+      nextIndex: Field(0),
+      prevIndex: Field(0)
+    })
+
+
+    expect(emptyOrderTemplate.order.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
+
+    for (let i=1;i<=height;i++) {
+      // dont give them any indexes
+      // const tmpOrder = new LocalOrder({
+      //   orderIndex: Field(i),
+      //   order: new Order({
+      //     maker: PublicKey.empty(),
+      //     orderAmount: Field(0),
+      //     orderPrice: Field(0),
+      //     isSell: Bool(false)
+      //   }),
+      //   nextIndex: Field(0),
+      //   prevIndex:  Field(0)
+      // })
+      emptyTreeArray.push(emptyOrderTemplate)
+    }
+    return emptyTreeArray
+  }
+
+  function convertOrdersIntoItems(orders:LocalOrder[] ): Array<[string,Field[]]> {
+    return orders.map((order) => {
+      return [order.orderIndex.toString(),order.toFields()]
+    })
+  } 
+
+  function convertItemsIntoOrders(items: Array<[string,string[]]>): LocalOrder[] {
+    // items has extra item[0] thjat is replicated in LocalOrder.orderIndex
+    return items.map((item) => {
+      return new LocalOrder({
+        orderIndex: Field(item[1][0]),
+        order: new Order({
+          maker: PublicKey.from({
+            x: Field(item[1][1]),
+            isOdd: Bool(item[1][2] == "1")
+          }),
+          orderAmount: Field(item[1][3]),
+          orderPrice: Field(item[1][4]),
+          isSell: Bool(item[1][5] == "1")
+        }),
+        nextIndex: Field(item[1][6]),
+        prevIndex: Field(item[1][7])
+      })
+    })
+  }
+
+  function getTreeRootFromMerkleArray(height: number, orders:LocalOrder[]) {
+    console.log("getTreeRootFromMerkleArray called")
+
+    // const idx2fields = new Map<bigint, Field[]>();
+
+    // fieldItems.forEach(([index, fields]) => {
+    //   idx2fields.set(index, fields);
+    // });
+    // console.log("idx2fields set",idx2fields)
+    const tree = new MerkleTree(height);
+  
+    for (let order of orders) {
+      // console.log("orders loop",order)
+      tree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
+    }
+
+    if (orders.length > 2 ** (height - 1)) {
+      throw "too many items for height"
+    }
+    return tree.getRoot().toString()
+  }
   beforeEach(async () => {
     await isReady;
     let Local = Mina.LocalBlockchain({ proofsEnabled: false });
@@ -389,149 +531,8 @@ describe('OrderBook.js', () => {
       const storagePublicKey = zkApp.StorageServerPublicKey.get()
       expect(storagePublicKey).toStrictEqual(deployer.toPublicKey());
     });
-    it.only('should work with offchain storage server', async() => {
-      async function postData(height: number,orders: LocalOrder[]): Promise<[Field,Signature]> {
+    it('should work with offchain storage server', async() => {
 
-        // need to convert to items: Array<[string, string[]]
-        // console.log("postData called",orders[0].toJSON(),orders[0].hash())
-        const items = convertOrdersIntoItems(orders);
-        // console.log("items",JSON.stringify(items,null,4))
-        
-        const postRes = await fetch(storageServerAddress + "/data", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            height,
-            items,
-            zkAppAddress: zkAppAddress.toJSON()
-          })
-        }).then((res) => res.json())
-
-        // handle local SellTree data update
-        expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
-        const newRootNumber = Field.fromJSON(postRes.result[0])
-        const rootSignature = Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))
-        orders.forEach((order) => {
-          SellTree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
-        })
-        await updateSellRoot(
-          deployer,
-          SellTree.getRoot(),
-          newRootNumber,
-          rootSignature
-        )
-        expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
-        return [newRootNumber,rootSignature]
-      }
-
-      async function getData(root: string) {
-        // getData will fail if zkAppAddress hasnt been init
-        
-        const data = await fetch(storageServerAddress + `/data?root=${root}&zkAppAddress=${zkAppAddress.toJSON()}`).then((res) => res.json())
-        // console.log("getData got data",JSON.stringify(data,null,4))
-        if (data.items) {
-          return convertItemsIntoOrders(data.items)
-        }
-        // throw errors upwards
-        return data
-      }
-      function convertMerkleArrayToIdex2Fields(orders: LocalOrder[]) {
-        const idx2fields = new Map<Field, LocalOrder>();
-        orders.forEach((order) => {
-          idx2fields.set(order.orderIndex, order);
-        });
-        return idx2fields
-      }
-      function getEmptyMerkleArray(height: number): LocalOrder[]{
-      
-        let emptyTreeArray: LocalOrder[] = []
-        // we keep  orderIndex for 0 as null address. do not store any orders at index0
-
-        // so we have to store next/prev indexes, because it carries the 'time' aspect of the price-time equation and isnt avail in order.
-        // we could directly just muck with the orderIndex actually, but it'll be harder to verify on chain??
-        // just gona implement linked list first then see how it performs
-        const emptyOrderTemplate = new LocalOrder({
-          orderIndex: Field(0),
-          order: new Order({
-            maker: PublicKey.empty(),
-            orderAmount: Field(0),
-            orderPrice: Field(0),
-            isSell: Bool(false)
-          }),
-          nextIndex: Field(0),
-          prevIndex: Field(0)
-        })
-
-
-        expect(emptyOrderTemplate.order.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
-
-        for (let i=1;i<=height;i++) {
-          // dont give them any indexes
-          // const tmpOrder = new LocalOrder({
-          //   orderIndex: Field(i),
-          //   order: new Order({
-          //     maker: PublicKey.empty(),
-          //     orderAmount: Field(0),
-          //     orderPrice: Field(0),
-          //     isSell: Bool(false)
-          //   }),
-          //   nextIndex: Field(0),
-          //   prevIndex:  Field(0)
-          // })
-          emptyTreeArray.push(emptyOrderTemplate)
-        }
-        return emptyTreeArray
-      }
-
-      function convertOrdersIntoItems(orders:LocalOrder[] ): Array<[string,Field[]]> {
-        return orders.map((order) => {
-          return [order.orderIndex.toString(),order.toFields()]
-        })
-      } 
-
-      function convertItemsIntoOrders(items: Array<[string,string[]]>): LocalOrder[] {
-        // items has extra item[0] thjat is replicated in LocalOrder.orderIndex
-        return items.map((item) => {
-          return new LocalOrder({
-            orderIndex: Field(item[1][0]),
-            order: new Order({
-              maker: PublicKey.from({
-                x: Field(item[1][1]),
-                isOdd: Bool(item[1][2] == "1")
-              }),
-              orderAmount: Field(item[1][3]),
-              orderPrice: Field(item[1][4]),
-              isSell: Bool(item[1][5] == "1")
-            }),
-            nextIndex: Field(item[1][6]),
-            prevIndex: Field(item[1][7])
-          })
-        })
-      }
-
-      function getTreeRootFromMerkleArray(height: number, orders:LocalOrder[]) {
-        console.log("getTreeRootFromMerkleArray called")
-
-        // const idx2fields = new Map<bigint, Field[]>();
-
-        // fieldItems.forEach(([index, fields]) => {
-        //   idx2fields.set(index, fields);
-        // });
-        // console.log("idx2fields set",idx2fields)
-        const tree = new MerkleTree(height);
-      
-        for (let order of orders) {
-          // console.log("orders loop",order)
-          tree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
-        }
-
-        if (orders.length > 2 ** (height - 1)) {
-          throw "too many items for height"
-        }
-        return tree.getRoot().toString()
-      }
 
       // getting existing tree
 
@@ -577,21 +578,20 @@ describe('OrderBook.js', () => {
 
 
 
-    })
-    it.skip('should not allow not makers to sign orders for makers', async () => {
-
     });
+    it.only('should be able to fillSellOrder1', async() => {
 
-    it('should be able to store sell orders properly', async () => {
 
-
+      const treeRoot = await zkApp.SellTreeRoot.get()
+      const localTreeArray = getEmptyMerkleArray(SellTree.height);
+      
+      // // we know its empty, so lets just request store to see if its needed
       const aliceOrder: Order = new Order({
         maker: alicePrivateKey.toPublicKey(),
         orderAmount: Field(100),
         orderPrice: Field(100),
         isSell: Bool(true),
       });
-
       const aliceLocalOrder: LocalOrder = new LocalOrder({
         orderIndex: Field(1),
         order: aliceOrder,
@@ -599,222 +599,23 @@ describe('OrderBook.js', () => {
         prevIndex: Field(0),
       });
 
+      localTreeArray[0] = aliceLocalOrder
+      const oldRootNumber = zkApp.SellStorageNumber.get()
+      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
+      const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
+      const remoteTreeArray2 = await getData(localCalculatedRoot2)
 
-
-
-
-      await addNewOrderToSellTree(aliceLocalOrder.orderIndex,aliceOrder)
-
-
-      expect(getOrderPrice(aliceLocalOrder)).toStrictEqual(Field(100));
-      expect(getOrderAmount(aliceLocalOrder)).toStrictEqual(Field(100));
-      expect(getSellOrderBook().length).toBe(1);
-      expect(getSellOrderBook()[0].order.maker).toStrictEqual(
-        alicePrivateKey.toPublicKey()
-      );
-
-      // console.log("initial tree root",SellTree.getRoot())
-      // console.log("initial ")
-      console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
-      // SellTree.setLeaf(aliceLocalOrder.orderIndex, aliceOrder.hash());
-      // const initalCommitment = SellTree.getRoot();
-      // const witness = new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex))
-      // console.log("witness",witness.path,witness.isLeft);
-      // console.log("initalCommitment",initalCommitment)
-      // await storeNewSellRoot(
-      //   alicePrivateKey,
-      //   initalCommitment,
-      //   aliceOrder,
-      //   new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex))
-      // );
-
-      //   // index i wanna edit = aliceLocalOrder.orderIndex
-      // await updateSellRoot(
-
-      // )
-      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
-      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
-
-      // const bobOrder: Order = new Order({
-      //   maker: bobPrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(200),
-      //   isSell: Bool(true),
-      // });
-      // const bobLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(2),
-      //   order: bobOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-
-      // addNewSellOrder(bobLocalOrder);
-
-      // // console.log("SellOrders",SellOrders)
-      // expect(getOrderPrice(bobLocalOrder)).toStrictEqual(Field(200));
-      // expect(getOrderAmount(bobLocalOrder)).toStrictEqual(Field(100));
-      // // console.log("getSellOrderBook()",getSellOrderBook())
-      // expect(getSellOrderBook().length).toBe(2);
-      // expect(getSellOrderBook()[0].order.maker).toStrictEqual(
-      //   alicePrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[1].order.maker).toStrictEqual(
-      //   bobPrivateKey.toPublicKey()
-      // );
-      // SellTree.setLeaf(bobLocalOrder.orderIndex, bobOrder.hash());
-      // const bobCommit = SellTree.getRoot();
-      // await storeNewSellRoot(
-      //   bobPrivateKey,
-      //   bobCommit,
-      //   bobOrder,
-      //   new MyMerkleWitness(SellTree.getWitness(bobLocalOrder.orderIndex))
-      // );
-      // zkApp.SellTreeRoot.get().assertEquals(bobCommit);
-
-      // const janeOrder: Order = new Order({
-      //   maker: janePrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(150),
-      //   isSell: Bool(true),
-      // });
-      // const janeLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(3),
-      //   order: janeOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-
-      // addNewSellOrder(janeLocalOrder);
-      // // console.log("SellOrders",SellOrders)
-      // expect(getOrderPrice(janeLocalOrder)).toStrictEqual(Field(150));
-      // expect(getOrderAmount(janeLocalOrder)).toStrictEqual(Field(100));
-      // expect(getSellOrderBook().length).toBe(3);
-      // expect(getSellOrderBook()[0].order.maker).toStrictEqual(
-      //   alicePrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[1].order.maker).toStrictEqual(
-      //   janePrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[2].order.maker).toStrictEqual(
-      //   bobPrivateKey.toPublicKey()
-      // );
-
-      // SellTree.setLeaf(janeLocalOrder.orderIndex, janeOrder.hash());
-      // const janeCommit = SellTree.getRoot();
-      // await storeNewSellRoot(
-      //   janePrivateKey,
-      //   janeCommit,
-      //   janeOrder,
-      //   new MyMerkleWitness(SellTree.getWitness(janeLocalOrder.orderIndex))
-      // );
-      // zkApp.SellTreeRoot.get().assertEquals(janeCommit);
-
-      // const tomOrder: Order = new Order({
-      //   maker: tomPrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(50),
-      //   isSell: Bool(true),
-      // });
-      // const tomLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(4),
-      //   order: tomOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-      // console.log('adding toms sell order');
-      // addNewSellOrder(tomLocalOrder);
-      // console.log('SellOrders', SellOrders);
-      // expect(getOrderPrice(tomLocalOrder)).toStrictEqual(Field(50));
-      // expect(getOrderAmount(tomLocalOrder)).toStrictEqual(Field(100));
-      // console.log('after tom getSellOrderBook()', getSellOrderBook());
-      // expect(getSellOrderBook().length).toBe(4);
-      // expect(getSellOrderBook()[0].order.maker).toStrictEqual(
-      //   tomPrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[1].order.maker).toStrictEqual(
-      //   alicePrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[2].order.maker).toStrictEqual(
-      //   janePrivateKey.toPublicKey()
-      // );
-      // expect(getSellOrderBook()[3].order.maker).toStrictEqual(
-      //   bobPrivateKey.toPublicKey()
-      // );
-
-      // SellTree.setLeaf(tomLocalOrder.orderIndex, tomOrder.hash());
-      // const tomCommit = SellTree.getRoot();
-      // await storeNewSellRoot(
-      //   tomPrivateKey,
-      //   tomCommit,
-      //   tomOrder,
-      //   new MyMerkleWitness(SellTree.getWitness(tomLocalOrder.orderIndex))
-      // );
-      // zkApp.SellTreeRoot.get().assertEquals(tomCommit);
+      // sellHead needs to be correct
+      const bobOrder: Order = new Order({
+        maker: bobPrivateKey.toPublicKey(),
+        orderAmount: Field(100),
+        orderPrice: Field(100),
+        isSell: Bool(false),
+      })
+      console.log("bah")
     });
-    it.skip('should not allow wrong merkle trees to be posted', async () => {
+    
 
-
-
-      // const aliceOrder: Order = new Order({
-      //   maker: alicePrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(100),
-      //   isSell: Bool(true),
-      // });
-
-      // const aliceLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(1),
-      //   order: aliceOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-
-      // addNewSellOrder(aliceLocalOrder);
-      // const Tree = new MerkleTree(8);
-      // // console.log("initial tree root",SellTree.getRoot())
-      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
-      // SellTree.setLeaf(aliceLocalOrder.orderIndex, aliceOrder.hash());
-      // const initalCommitment = SellTree.getRoot();
-      // // console.log("initalCommitment",initalCommitment)
-      // // await storeNewSellRoot(
-      // //   alicePrivateKey,
-      // //   initalCommitment,
-      // //   aliceOrder,
-      // //   new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex))
-      // // );
-      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
-      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
-
-
-      // // bobUses Fake tree
-      // const FakeTree = new MerkleTree(8);
-      // const bobOrder: Order = new Order({
-      //   maker: bobPrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(200),
-      //   isSell: Bool(true),
-      // });
-      // const bobLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(2),
-      //   order: bobOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-
-      // addNewSellOrder(bobLocalOrder);
-      // FakeSellTree.setLeaf(bobLocalOrder.orderIndex, bobOrder.hash());
-      // const bobCommit = FakeSellTree.getRoot();
-      // await storeNewSellRoot(
-      //   bobPrivateKey,
-      //   bobCommit,
-      //   bobOrder,
-      //   new MyMerkleWitness(FakeSellTree.getWitness(bobLocalOrder.orderIndex))
-      // );
-
-      // //bobs commit should not be here
-      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
-
-    });
   });
 });
 
