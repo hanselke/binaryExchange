@@ -16,8 +16,6 @@ import {
 } from 'snarkyjs';
 
 
-const storageServerAddress = "http://127.0.0.1:3001"
-
 describe('OrderBook.js', () => {
   let zkApp: OrderBook,
     zkAppPrivateKey: PrivateKey,
@@ -26,11 +24,14 @@ describe('OrderBook.js', () => {
     alicePrivateKey: PrivateKey,
     bobPrivateKey: PrivateKey,
     janePrivateKey: PrivateKey,
-    tomPrivateKey: PrivateKey;
+    tomPrivateKey: PrivateKey,
+    storageServerPublicKey: PublicKey
 
   
   
 
+  const storageServerAddress = "http://127.0.0.1:3001"
+  
     // this serves as our offchain in memory storage
     let SellOrders: Map<Field, LocalOrder> = new Map<Field, LocalOrder>(); // orderIndex has key
 
@@ -365,7 +366,14 @@ describe('OrderBook.js', () => {
     SellTree = new MerkleTree(8);
     SellTree.fill([Field(0)]);
     // use deployer as storage server
-    await initState(deployer,deployer.toPublicKey())
+    storageServerPublicKey = PublicKey.fromBase58(
+      await fetch(storageServerAddress + "/publicKey")
+      .then((res) => res.json()).then((res) => res.serverPublicKey58)
+      .catch((err) => {
+        throw err
+      })
+    )
+    await initState(deployer,storageServerPublicKey)
 
 
 
@@ -572,10 +580,10 @@ describe('OrderBook.js', () => {
 
       // update the orderbook sellHead
 
-      console.log("storageServerPublicKey",deployer.toPublicKey().toJSON())
+      console.log("storageServerPublicKey",storageServerPublicKey.toJSON())
       console.log("SellTree root after add",SellTree.getRoot().toString())
       console.log("rootSignature",rootSignature.toFields().toString())
-      expect(rootSignature.verify(deployer.toPublicKey(),[SellTree.getRoot(),newRootNumber]).toBoolean()).toBe(true)
+      expect(rootSignature.verify(storageServerPublicKey,[SellTree.getRoot(),newRootNumber]).toBoolean()).toBe(true)
 
       updateSellRoot(
         deployer,

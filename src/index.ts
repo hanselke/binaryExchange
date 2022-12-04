@@ -2,14 +2,6 @@ import { OrderBook } from './OrderBook.js';
 
 
 import {
-    MerkleWitness4,
-    MerkleWitness8,
-    MerkleWitness16,
-    MerkleWitness24,
-    MerkleWitness32,
-    MerkleWitness64,
-    MerkleWitness128,
-    MerkleWitness256,
     Update,
     assertRootUpdateValid,
     get,
@@ -32,13 +24,5 @@ import {
   
   export {
     OffChainStorage,
-    MerkleWitness4,
-    MerkleWitness8,
-    MerkleWitness16,
-    MerkleWitness24,
-    MerkleWitness32,
-    MerkleWitness64,
-    MerkleWitness128,
-    MerkleWitness256,
     OrderBook
   };
