@@ -16,10 +16,9 @@ import {
   UInt32
 } from 'snarkyjs';
 import {
-  OffChainStorage,
   Update,
-  MerkleWitness8,
-} from 'experimental-zkapp-offchain-storage';
+  assertRootUpdateValid
+} from './offChainStorage';
 
 export { Order, OrderBook, MyMerkleWitness,LeafUpdate, LocalOrder};
 
@@ -69,20 +68,20 @@ class LocalOrder extends Struct({
       prevIndex: this.prevIndex.toString()
     }
   }
-  hash(): Field {
-    const orderHash = Poseidon.hash([
-      ...this.order.maker.toFields(),
-      this.order.orderAmount,
-      this.order.orderPrice,
-      this.order.isSell.toField(),
-    ])
-    return Poseidon.hash([
-      this.orderIndex,
-      orderHash,
-      this.nextIndex,
-      this.prevIndex
-    ])
-  }
+  // hash(): Field {
+  //   const orderHash = Poseidon.hash([
+  //     ...this.order.maker.toFields(),
+  //     this.order.orderAmount,
+  //     this.order.orderPrice,
+  //     this.order.isSell.toField(),
+  //   ])
+  //   return Poseidon.hash([
+  //     this.orderIndex,
+  //     orderHash,
+  //     this.nextIndex,
+  //     this.prevIndex
+  //   ])
+  // }
   toFields(): Field[] {
     return [
       this.orderIndex,
@@ -95,17 +94,17 @@ class LocalOrder extends Struct({
     ]
   }
 
-  toStringArray(): string[] {
-    return [
-      this.orderIndex.toString(),
-      this.order.maker.toJSON(),
-      this.order.orderAmount.toString(),
-      this.order.orderPrice.toString(),
-      this.order.isSell.toField().toString(),
-      this.nextIndex.toString(),
-      this.prevIndex.toString()
-    ]
-  }
+  // toStringArray(): string[] {
+  //   return [
+  //     this.orderIndex.toString(),
+  //     this.order.maker.toJSON(),
+  //     this.order.orderAmount.toString(),
+  //     this.order.orderPrice.toString(),
+  //     this.order.isSell.toField().toString(),
+  //     this.nextIndex.toString(),
+  //     this.prevIndex.toString()
+  //   ]
+  // }
 }
 class LeafUpdate extends Struct({
   leaf: [Field],
@@ -117,9 +116,9 @@ class LeafUpdate extends Struct({
 
 }
 class OrderBook extends SmartContract {
-  @state(PublicKey) storageServerPublicKey = State<PublicKey>();
-  @state(Field) sellStorageNumber = State<Field>();
-  @state(Field) sellTreeRoot = State<Field>();
+  @state(PublicKey) StorageServerPublicKey = State<PublicKey>();
+  @state(Field) SellStorageNumber = State<Field>();
+  @state(Field) SellTreeRoot = State<Field>();
 
   deploy() {
     super.deploy();
@@ -129,57 +128,62 @@ class OrderBook extends SmartContract {
     });
   }
 
-  @method initState(storageServerPublicKey: PublicKey) {
-    this.storageServerPublicKey.set(storageServerPublicKey);
-    this.sellStorageNumber.set(Field.zero);
-    const emptyTreeRoot = new MerkleTree(8).getRoot();
-    this.sellTreeRoot.set(emptyTreeRoot);
+  @method initState(StorageServerPublicKey: PublicKey) {
+    this.StorageServerPublicKey.set(StorageServerPublicKey);
+    this.SellStorageNumber.set(Field.zero);
+    const emptyTreeRoot = Field("14472842460125086645444909368571209079194991627904749620726822601198914470820");
+    //precalculated empty merkle tree of LocalOrder[] height 8
+
+    
+    this.SellTreeRoot.set(emptyTreeRoot);
   }
 
   @method updateSellRoot(
-    update: LeafUpdate,
-    newRoot: Field 
+    leafIsEmpty: Bool,
+    oldNum: Field,
+    num: Field,
+    path: MyMerkleWitness,
+    storedNewRootNumber: Field,
+    storedNewRootSignature: Signature
   ) {
+    const storedRoot = this.SellTreeRoot.get();
+    this.SellTreeRoot.assertEquals(storedRoot);
 
-    // is there a real need to compare newRoot? we can always calculate it...
-    this.assertRootUpdateValid(update,newRoot)
-    this.sellTreeRoot.set(newRoot);
-  }
+    let storedNumber = this.SellStorageNumber.get();
+    this.SellStorageNumber.assertEquals(storedNumber);
 
-  @method assertRootUpdateValid(update: LeafUpdate, storedNewRoot: Field)  {
-    let emptyLeaf = Field(0);
-    let currentRoot = this.sellTreeRoot.get();
-    this.sellTreeRoot.assertEquals(currentRoot);
-    let updates = [update]; // can optimize the loop away if we really cant send multiple
-    // dooesnt work, dont check for now
-    // Circuit.if(
-    //   root.equals(storedNewRoot),
-    //   (() => {
-    //     // we want to kill it here, gona just use another assert cos i dont know how to do it raw
-    //     Circuit.log("root equals storedNewRoot",root,storedNewRoot)
-    //     return root.assertGt(storedNewRoot)
-    //   })(),
-    //   (() => {
-    //     // do nothing here
-    //     return;
-    //   })()
-    // )
-    Circuit.log("onchain assertRootUpdateValid currentRoot",currentRoot)
-    for (var i = 0; i < updates.length; i++) {
-        const { leaf, leafIsEmpty, newLeaf, newLeafIsEmpty, leafWitness } = updates[i];
-        // check the root is starting from the correct state
-        let leafHash = Circuit.if(leafIsEmpty, emptyLeaf, Poseidon.hash(leaf));
-        leafWitness.calculateRoot(leafHash).assertEquals(currentRoot);
-        // calculate the new root after setting the leaf
-        let newLeafHash = Circuit.if(newLeafIsEmpty, emptyLeaf, Poseidon.hash(newLeaf));
-        currentRoot = leafWitness.calculateRoot(newLeafHash);
-        Circuit.log("onchain latest currentRoot",currentRoot)
-    }
-    Circuit.log("currentRoot equals storedNewRoot",currentRoot,storedNewRoot)
-    currentRoot.assertEquals(storedNewRoot)
-  }
+    let StorageServerPublicKey = this.StorageServerPublicKey.get();
+    this.StorageServerPublicKey.assertEquals(StorageServerPublicKey);
+    Circuit.log("OrderBook:updateSellRoot:storedNumber ",storedNumber)
+    Circuit.log("OrderBook:updateSellRoot:StorageServerPublicKey ",StorageServerPublicKey)
+    Circuit.log("OrderBook:updateSellRoot:storedRoot ",storedRoot)
+    
+    let leaf = [oldNum];
+    let newLeaf = [num];
 
-  @method hashOrder(order: Order) {
-    return order.hash()
+    // newLeaf can be a function of the existing leaf
+    // newLeaf[0].assertGt(leaf[0]);
+
+    const updates: Update[] = [
+      {
+        leaf,
+        leafIsEmpty,
+        newLeaf,
+        newLeafIsEmpty: Bool(false),
+        leafWitness: path,
+      },
+    ];
+    console.log("updates",updates);
+    const storedNewRoot = assertRootUpdateValid(
+      StorageServerPublicKey,
+      storedNumber,
+      storedRoot,
+      updates,
+      storedNewRootNumber,
+      storedNewRootSignature
+    );
+
+    this.SellTreeRoot.set(storedNewRoot);
+    this.SellStorageNumber.set(storedNewRootNumber);
   }
 }

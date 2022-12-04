@@ -139,8 +139,9 @@ app.post('/data', (req, res) => {
   });
 
   const tree = new MerkleTree(height);
-
+  console.log("old root",tree.getRoot().toString())
   for (let [idx, fields] of idx2fields) {
+    console.log("idx2fields",idx,fields)
     tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
   }
 
@@ -196,9 +197,13 @@ app.post('/data', (req, res) => {
     newRoot,
     newRootNumber,
   ]);
+  if (newRootSignature.verify(serverPublicKey,[newRoot,newRootNumber]).toBoolean() == false) {
+    throw "cant even verify myself"
+  }
 
   console.log('storing', zkAppAddress58, newRoot.toString());
-
+  console.log("newRootSignature",newRootSignature.toFields().toString())
+  console.log("newRoot",newRoot.toString())
   res.json({
     result: [
       newRootNumber.toString(),

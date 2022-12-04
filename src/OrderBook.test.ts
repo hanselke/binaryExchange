@@ -1,5 +1,4 @@
 import { OrderBook, Order, MyMerkleWitness,LeafUpdate,LocalOrder } from './OrderBook';
-import { OffChainStorage, MerkleWitness8 } from 'experimental-zkapp-offchain-storage';
 import {
   isReady,
   shutdown,
@@ -12,9 +11,10 @@ import {
   Bool,
   MerkleTree,
   Circuit,
-  Poseidon
+  Poseidon,
+  Signature
 } from 'snarkyjs';
-import { fieldEncodings } from 'snarkyjs/dist/node/provable/binable';
+
 
 const storageServerAddress = "http://127.0.0.1:3001"
 
@@ -229,10 +229,10 @@ describe('OrderBook.js', () => {
 
     async function initState(
       signerKey: PrivateKey,
-      storageServerPublicKey: PublicKey
+      StorageServerPublicKey: PublicKey
     ) {
       let tx = await Mina.transaction(signerKey, () => {
-        zkApp.initState(storageServerPublicKey);
+        zkApp.initState(StorageServerPublicKey);
       });
       await tx.prove();
       tx.sign([signerKey]);
@@ -241,11 +241,21 @@ describe('OrderBook.js', () => {
 
     async function updateSellRoot(
     signerKey: PrivateKey,
-    update: LeafUpdate,
-    newRoot: Field 
+    leafIsEmpty: Bool,
+    oldNum: Field,
+    num: Field,
+    path: MyMerkleWitness,
+    storedNewRootNumber: Field,
+    storedNewRootSignature: Signature
     ) {
       let tx = await Mina.transaction(signerKey, () => {
-        zkApp.updateSellRoot(update,newRoot);
+        zkApp.updateSellRoot(  
+          leafIsEmpty,
+          oldNum,
+          num,
+          path,
+          storedNewRootNumber,
+          storedNewRootSignature);
       });
       await tx.prove();
       tx.sign([signerKey]);
@@ -254,7 +264,7 @@ describe('OrderBook.js', () => {
 
     async function addNewOrderToSellTree(leafIndex: Field,newOrder: Order) {
       // verify that Tree is synced with OrderBook
-      const treeRoot = zkApp.sellTreeRoot.get();
+      const treeRoot = zkApp.SellTreeRoot.get();
       expect(SellTree.getRoot()).toStrictEqual(treeRoot);
 
       // get old leafIndex witness before insert
@@ -295,7 +305,7 @@ describe('OrderBook.js', () => {
         // await updateSellRoot(deployer,updates[0],newRoot)
         // // console.log("newRoot i wanna use",newRoot.toString())
 
-        // const updatedTreeRoot = zkApp.sellTreeRoot.get();
+        // const updatedTreeRoot = zkApp.SellTreeRoot.get();
 
         // updatedTreeRoot.assertEquals(newRoot);
         // const newLocalOrder: LocalOrder = {
@@ -368,24 +378,24 @@ describe('OrderBook.js', () => {
 
   
     it('should deploy', async () => {
-      const unfilledHead = zkApp.sellTreeRoot.get();
+      const unfilledHead = zkApp.SellTreeRoot.get();
       expect(unfilledHead).toStrictEqual(new MerkleTree(8).getRoot());
 
-      const sellStorageNumber = zkApp.sellStorageNumber.get()
-      expect(sellStorageNumber).toStrictEqual(Field(0))
+      const SellStorageNumber = zkApp.SellStorageNumber.get()
+      expect(SellStorageNumber).toStrictEqual(Field(0))
 
-      const storagePublicKey = zkApp.storageServerPublicKey.get()
+      const storagePublicKey = zkApp.StorageServerPublicKey.get()
       expect(storagePublicKey).toStrictEqual(deployer.toPublicKey());
     });
     it.only('should work with offchain storage server', async() => {
-      async function postData(height: number,orders: LocalOrder[]) {
+      async function postData(height: number,orders: LocalOrder[]): Promise<[Field,Signature]> {
 
         // need to convert to items: Array<[string, string[]]
         // console.log("postData called",orders[0].toJSON(),orders[0].hash())
         const items = convertOrdersIntoItems(orders);
         // console.log("items",JSON.stringify(items,null,4))
-
-        return await fetch(storageServerAddress + "/data", {
+        
+        const postRes = await fetch(storageServerAddress + "/data", {
           method: "POST",
           headers: {
             'Content-Type': 'application/json'
@@ -396,6 +406,25 @@ describe('OrderBook.js', () => {
             zkAppAddress: zkAppAddress.toJSON()
           })
         }).then((res) => res.json())
+
+        // handle local SellTree data update
+        expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+        const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, fields]) => [
+          BigInt(idx),
+          fields,
+        ]);
+        const idx2fields = new Map<bigint, Field[]>();
+
+        fieldItems.forEach(([index, fields]) => {
+          idx2fields.set(index, fields);
+        });
+        console.log("idx2fields",idx2fields)
+        for (let [idx, fields] of idx2fields) {
+          console.log("idx2fields",idx,fields)
+          SellTree.setLeaf(BigInt(idx), Poseidon.hash(fields));
+        }
+        console.log("SellTree root",SellTree.getRoot().toString())
+        return [Field.fromJSON(postRes.result[0]),Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))]
       }
 
       async function getData(root: string) {
@@ -440,18 +469,19 @@ describe('OrderBook.js', () => {
         expect(emptyOrderTemplate.order.maker.toJSON()).toStrictEqual("B62qiTKpEPjGTSHZrtM8uXiKgn8So916pLmNJKDhKeyBQL9TDb3nvBG") // are we sure this is it?
 
         for (let i=1;i<=height;i++) {
-          const tmpOrder = new LocalOrder({
-            orderIndex: Field(i),
-            order: new Order({
-              maker: PublicKey.empty(),
-              orderAmount: Field(0),
-              orderPrice: Field(0),
-              isSell: Bool(false)
-            }),
-            nextIndex: Field(0),
-            prevIndex:  Field(0)
-          })
-          emptyTreeArray.push(tmpOrder)
+          // dont give them any indexes
+          // const tmpOrder = new LocalOrder({
+          //   orderIndex: Field(i),
+          //   order: new Order({
+          //     maker: PublicKey.empty(),
+          //     orderAmount: Field(0),
+          //     orderPrice: Field(0),
+          //     isSell: Bool(false)
+          //   }),
+          //   nextIndex: Field(0),
+          //   prevIndex:  Field(0)
+          // })
+          emptyTreeArray.push(emptyOrderTemplate)
         }
         return emptyTreeArray
       }
@@ -506,27 +536,16 @@ describe('OrderBook.js', () => {
 
       // getting existing tree
 
-      const treeRoot = await zkApp.sellTreeRoot.get()
+      const treeRoot = await zkApp.SellTreeRoot.get()
       expect(treeRoot).toStrictEqual(new MerkleTree(8).getRoot())
       expect(treeRoot).toStrictEqual(SellTree.getRoot())
+      console.log("treeRoot",treeRoot.toString())
       // !! post data to server
       expect(await getData(treeRoot.toString())).toStrictEqual({
         error: "no data for address"
       })
       const localTreeArray = getEmptyMerkleArray(SellTree.height);
       
-      
-      await postData(SellTree.height,localTreeArray)
-
-      // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
-      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
-      console.log("localCalculatedRoot",localCalculatedRoot)
-      const remoteTreeArray = await getData(localCalculatedRoot)
-      console.log("remoteTreeArray",remoteTreeArray[0].order.isSell,remoteTreeArray[0].order.isSell.toBoolean())
-      console.log("localTreeArray",localTreeArray[0].order.isSell,localTreeArray[0].order.isSell.toBoolean())
-      expect(remoteTreeArray).toStrictEqual(localTreeArray)
-      console.log("getdata is correct")
-
       // // we know its empty, so lets just request store to see if its needed
       const aliceOrder: Order = new Order({
         maker: alicePrivateKey.toPublicKey(),
@@ -540,14 +559,34 @@ describe('OrderBook.js', () => {
         nextIndex: Field(0),
         prevIndex: Field(0),
       });
-      console.log("localTreeArray",localTreeArray)
-      localTreeArray[0] = aliceLocalOrder
-      await postData(SellTree.height,localTreeArray)
 
+      localTreeArray[0] = aliceLocalOrder
+      console.log("SellTree root before add",SellTree.getRoot().toString())
+      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
+      const oldRootNumber = zkApp.SellStorageNumber.get()
+      expect(oldRootNumber.add(1)).toStrictEqual(newRootNumber)
       const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
-      console.log("localCalculatedRoot2",localCalculatedRoot2)
+
       const remoteTreeArray2 = await getData(localCalculatedRoot2)
       expect(remoteTreeArray2).toStrictEqual(localTreeArray)
+
+      // update the orderbook sellHead
+
+      console.log("storageServerPublicKey",deployer.toPublicKey().toJSON())
+      console.log("SellTree root after add",SellTree.getRoot().toString())
+      console.log("rootSignature",rootSignature.toFields().toString())
+      expect(rootSignature.verify(deployer.toPublicKey(),[SellTree.getRoot(),newRootNumber]).toBoolean()).toBe(true)
+
+      updateSellRoot(
+        deployer,
+        Bool(true),
+        Poseidon.hash(localTreeArray[0].toFields()),
+        Poseidon.hash(aliceLocalOrder.toFields()),
+        new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex.toBigInt())),
+        newRootNumber,
+        rootSignature
+      )
+
     })
     it.skip('should not allow not makers to sign orders for makers', async () => {
 
@@ -586,7 +625,7 @@ describe('OrderBook.js', () => {
 
       // console.log("initial tree root",SellTree.getRoot())
       // console.log("initial ")
-      // console.log(" zkApp.sellTreeRoot.get()", zkApp.sellTreeRoot.get())
+      console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
       // SellTree.setLeaf(aliceLocalOrder.orderIndex, aliceOrder.hash());
       // const initalCommitment = SellTree.getRoot();
       // const witness = new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex))
@@ -603,8 +642,8 @@ describe('OrderBook.js', () => {
       // await updateSellRoot(
 
       // )
-      // // console.log(" zkApp.sellTreeRoot.get()", zkApp.sellTreeRoot.get())
-      // zkApp.sellTreeRoot.get().assertEquals(initalCommitment);
+      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
+      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
 
       // const bobOrder: Order = new Order({
       //   maker: bobPrivateKey.toPublicKey(),
@@ -640,7 +679,7 @@ describe('OrderBook.js', () => {
       //   bobOrder,
       //   new MyMerkleWitness(SellTree.getWitness(bobLocalOrder.orderIndex))
       // );
-      // zkApp.sellTreeRoot.get().assertEquals(bobCommit);
+      // zkApp.SellTreeRoot.get().assertEquals(bobCommit);
 
       // const janeOrder: Order = new Order({
       //   maker: janePrivateKey.toPublicKey(),
@@ -678,7 +717,7 @@ describe('OrderBook.js', () => {
       //   janeOrder,
       //   new MyMerkleWitness(SellTree.getWitness(janeLocalOrder.orderIndex))
       // );
-      // zkApp.sellTreeRoot.get().assertEquals(janeCommit);
+      // zkApp.SellTreeRoot.get().assertEquals(janeCommit);
 
       // const tomOrder: Order = new Order({
       //   maker: tomPrivateKey.toPublicKey(),
@@ -720,7 +759,7 @@ describe('OrderBook.js', () => {
       //   tomOrder,
       //   new MyMerkleWitness(SellTree.getWitness(tomLocalOrder.orderIndex))
       // );
-      // zkApp.sellTreeRoot.get().assertEquals(tomCommit);
+      // zkApp.SellTreeRoot.get().assertEquals(tomCommit);
     });
     it.skip('should not allow wrong merkle trees to be posted', async () => {
 
@@ -743,7 +782,7 @@ describe('OrderBook.js', () => {
       // addNewSellOrder(aliceLocalOrder);
       // const Tree = new MerkleTree(8);
       // // console.log("initial tree root",SellTree.getRoot())
-      // // console.log(" zkApp.sellTreeRoot.get()", zkApp.sellTreeRoot.get())
+      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
       // SellTree.setLeaf(aliceLocalOrder.orderIndex, aliceOrder.hash());
       // const initalCommitment = SellTree.getRoot();
       // // console.log("initalCommitment",initalCommitment)
@@ -753,8 +792,8 @@ describe('OrderBook.js', () => {
       // //   aliceOrder,
       // //   new MyMerkleWitness(SellTree.getWitness(aliceLocalOrder.orderIndex))
       // // );
-      // // console.log(" zkApp.sellTreeRoot.get()", zkApp.sellTreeRoot.get())
-      // zkApp.sellTreeRoot.get().assertEquals(initalCommitment);
+      // // console.log(" zkApp.SellTreeRoot.get()", zkApp.SellTreeRoot.get())
+      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
 
 
       // // bobUses Fake tree
@@ -783,7 +822,7 @@ describe('OrderBook.js', () => {
       // );
 
       // //bobs commit should not be here
-      // zkApp.sellTreeRoot.get().assertEquals(initalCommitment);
+      // zkApp.SellTreeRoot.get().assertEquals(initalCommitment);
 
     });
   });

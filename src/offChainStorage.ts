@@ -47,11 +47,11 @@ export const assertRootUpdateValid = (
   for (var i = 0; i < updates.length; i++) {
     const { leaf, leafIsEmpty, newLeaf, newLeafIsEmpty, leafWitness } =
       updates[i];
-
+    console.log("assertRootUpdateValidbefore leafHash")
     // check the root is starting from the correct state
     let leafHash = Circuit.if(leafIsEmpty, emptyLeaf, Poseidon.hash(leaf));
     leafWitness.calculateRoot(leafHash).assertEquals(currentRoot);
-
+    console.log("assertRootUpdateValid: root verified")
     // calculate the new root after setting the leaf
     let newLeafHash = Circuit.if(
       newLeafIsEmpty,
@@ -59,6 +59,7 @@ export const assertRootUpdateValid = (
       Poseidon.hash(newLeaf)
     );
     currentRoot = leafWitness.calculateRoot(newLeafHash);
+    console.log("assertRootUpdateValid: currentRoot",currentRoot)
   }
 
   const storedNewRoot = currentRoot;
