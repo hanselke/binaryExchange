@@ -13,9 +13,8 @@ import {
   PublicKey,
   fetchAccount,
   Mina,
-  Bool
 } from 'snarkyjs';
-import { OrderBook, Order, MyMerkleWitness,LeafUpdate,LocalOrder } from './OrderBook';
+
 await isReady;
 
 console.log(
@@ -49,7 +48,7 @@ const saveFile = 'database.json';
 // ==============================================================================
 
 type data_obj_map = {
-  [root: string]: { rootNumber: number; orders: LocalOrder[] };
+  [root: string]: { rootNumber: number; items: Array<[string, string[]]> };
 };
 
 let database: {
@@ -125,15 +124,26 @@ console.log('Server using public key', serverPublicKey.toBase58());
 
 app.post('/data', (req, res) => {
   const height: number = req.body.height;
-
-  const orders = req.body.orders;
+  const items: Array<[string, string[]]> = req.body.items;
   const zkAppAddress58: string = req.body.zkAppAddress;
-  console.log('post data called', height, orders);
+  console.log('post data called', height, zkAppAddress58);
+  const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
+    BigInt(idx),
+    strs.map((s) => Field.fromJSON(s)),
+  ]);
+
+  const idx2fields = new Map<bigint, Field[]>();
+
+  fieldItems.forEach(([index, fields]) => {
+    idx2fields.set(index, fields);
+  });
+
   const tree = new MerkleTree(height);
-  orders.forEach((localOrder: LocalOrder) => {
-    tree.setLeaf(localOrder.orderIndex.toBigInt(), localOrder.hash())
-  })
-  console.log("set tree leafs done")
+
+  for (let [idx, fields] of idx2fields) {
+    tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
+  }
+
   if (height > maxHeight) {
     res.status(400).send({
       error:
@@ -144,9 +154,9 @@ app.post('/data', (req, res) => {
     return;
   }
 
-  if (orders.length > 2 ** (height - 1)) {
+  if (items.length > 2 ** (height - 1)) {
     res.status(400).send({
-      error: 'too many orders for height',
+      error: 'too many items for height',
     });
     return;
   }
@@ -170,7 +180,7 @@ app.post('/data', (req, res) => {
   database[zkAppAddress58].nextNumber += 1;
   database[zkAppAddress58].root2data[newRoot.toString()] = {
     rootNumber: Number(newRootNumber.toBigInt()),
-    orders,
+    items,
   };
   console.log('post data gona store data');
   fs.writeFileSync(
@@ -210,7 +220,7 @@ app.get('/data', (req, res) => {
     if (database[zkAppAddress58]) {
       if (database[zkAppAddress58].root2data[root]) {
         res.json({
-          orders: database[zkAppAddress58].root2data[root].orders,
+          items: database[zkAppAddress58].root2data[root].items,
         });
         return;
       } else {

@@ -252,7 +252,6 @@ describe('OrderBook.js', () => {
       await tx.send();
     } 
 
-
     async function addNewOrderToSellTree(leafIndex: Field,newOrder: Order) {
       // verify that Tree is synced with OrderBook
       const treeRoot = zkApp.sellTreeRoot.get();
@@ -381,8 +380,11 @@ describe('OrderBook.js', () => {
     it.only('should work with offchain storage server', async() => {
       async function postData(height: number,orders: LocalOrder[]) {
 
-        // get it in Order[] and convert it into Array<[string, Order]>
-        
+        // need to convert to items: Array<[string, string[]]
+        console.log("postData called",orders[0].toJSON())
+        const items = orders.map((order) => {
+          return [order.orderIndex.toString(),order.toJSON()]
+        })
         return await fetch(storageServerAddress + "/data", {
           method: "POST",
           headers: {
@@ -390,7 +392,7 @@ describe('OrderBook.js', () => {
           },
           body: JSON.stringify({
             height,
-            orders,
+            items,
             zkAppAddress: zkAppAddress.toJSON()
           })
         }).then((res) => res.json())
