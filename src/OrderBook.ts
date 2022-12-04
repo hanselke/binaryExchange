@@ -94,6 +94,18 @@ class LocalOrder extends Struct({
       this.prevIndex
     ]
   }
+
+  toStringArray(): string[] {
+    return [
+      this.orderIndex.toString(),
+      this.order.maker.toJSON(),
+      this.order.orderAmount.toString(),
+      this.order.orderPrice.toString(),
+      this.order.isSell.toField().toString(),
+      this.nextIndex.toString(),
+      this.prevIndex.toString()
+    ]
+  }
 }
 class LeafUpdate extends Struct({
   leaf: [Field],

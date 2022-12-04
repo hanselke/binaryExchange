@@ -382,10 +382,8 @@ describe('OrderBook.js', () => {
 
         // need to convert to items: Array<[string, string[]]
         // console.log("postData called",orders[0].toJSON(),orders[0].hash())
-        const items = orders.map((order) => {
-          return [order.orderIndex.toString(),order.toFields()]
-        })
-      
+        const items = convertOrdersIntoItems(orders);
+        console.log("items",JSON.stringify(items,null,4))
 
         return await fetch(storageServerAddress + "/data", {
           method: "POST",
@@ -456,54 +454,35 @@ describe('OrderBook.js', () => {
         }
         return emptyTreeArray
       }
-      // function getTreeRootFromMerkleArray(height: number, items: Array<[string, string[]]>) {
-      //   if (height > 256) {
-      //     throw "offchain server doesnt support via hardcode value"
-      //   }
-      //   // const zkAppAddress58: string = zkAppAddress.toJSON()
-      //   const fieldItems: Array<[bigint, Field[]]> = items.map(([idx, strs]) => [
-      //     BigInt(idx),
-      //     strs.map((s) => Field.fromJSON(s)),
-      //   ]);
 
-      //   const idx2fields = new Map<bigint, Field[]>();
+      function convertOrdersIntoItems(orders:LocalOrder[] ): Array<[string,Field[]]> {
+        return orders.map((order) => {
+          return [order.orderIndex.toString(),order.toFields()]
+        })
+      } 
 
-      //   fieldItems.forEach(([index, fields]) => {
-      //     idx2fields.set(index, fields);
-      //   });
+      function getTreeRootFromMerkleArray(height: number, orders:LocalOrder[]) {
+        console.log("getTreeRootFromMerkleArray called")
+
+        // const idx2fields = new Map<bigint, Field[]>();
+
+        // fieldItems.forEach(([index, fields]) => {
+        //   idx2fields.set(index, fields);
+        // });
+        // console.log("idx2fields set",idx2fields)
+        const tree = new MerkleTree(height);
       
-      //   const tree = new MerkleTree(height);
-      
-      //   for (let [idx, fields] of idx2fields) {
-      //     tree.setLeaf(BigInt(idx), Poseidon.hash(fields));
-      //   }
+        for (let order of orders) {
+          console.log("orders loop",order)
+          tree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
+        }
 
-      //   if (items.length > 2 ** (height - 1)) {
-      //     throw "too many items for height"
-      //   }
-      //   return tree.getRoot().toString()
-      // }
+        if (orders.length > 2 ** (height - 1)) {
+          throw "too many items for height"
+        }
+        return tree.getRoot().toString()
+      }
 
-    //   export const get = async (serverAddress, zkAppAddress, height, root, UserXMLHttpRequest = null) => {
-    //     const idx2fields = new Map();
-    //     const tree = new MerkleTree(height);
-    //     if (tree.getRoot().equals(root).toBoolean()) {
-    //         return idx2fields;
-    //     }
-    //     var params = 'zkAppAddress=' + zkAppAddress.toBase58() + '&root=' + root.toString();
-    //     const response = await makeRequest('GET', serverAddress + '/data?' + params, null, UserXMLHttpRequest);
-    //     const data = JSON.parse(response);
-    //     printCaution();
-    //     const items = data.items;
-    //     const fieldItems = items.map(([idx, strs]) => [
-    //         idx,
-    //         strs.map((s) => Field.fromJSON(s)),
-    //     ]);
-    //     fieldItems.forEach(([index, fields]) => {
-    //         idx2fields.set(BigInt(index), fields);
-    //     });
-    //     return idx2fields;
-    // };
       // getting existing tree
 
       const treeRoot = await zkApp.sellTreeRoot.get()
@@ -519,29 +498,27 @@ describe('OrderBook.js', () => {
       await postData(SellTree.height,localTreeArray)
 
       // ok so now we do not know what the idx2fields and conseuaintly the root hash? 
-
-      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,emptyTreeArray)
+      const localCalculatedRoot = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
       console.log("localCalculatedRoot",localCalculatedRoot)
       const idx2fields = await getData(localCalculatedRoot)
-      expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(emptyTreeArray))
-
-      
+      expect(idx2fields).toStrictEqual(convertMerkleArrayToIdex2Fields(localTreeArray))
+      console.log("getdata is correct")
 
       // // we know its empty, so lets just request store to see if its needed
-      // const aliceOrder: Order = new Order({
-      //   maker: alicePrivateKey.toPublicKey(),
-      //   orderAmount: Field(100),
-      //   orderPrice: Field(100),
-      //   isSell: Bool(true),
-      // });
-      // const aliceLocalOrder: LocalOrder = new LocalOrder({
-      //   orderIndex: BigInt(1),
-      //   order: aliceOrder,
-      //   nextIndex: Field(0),
-      //   prevIndex: Field(0),
-      // });
-
-      // emptyTreeArray[0][1] = [aliceOrder.hash()]
+      const aliceOrder: Order = new Order({
+        maker: alicePrivateKey.toPublicKey(),
+        orderAmount: Field(100),
+        orderPrice: Field(100),
+        isSell: Bool(true),
+      });
+      const aliceLocalOrder: LocalOrder = new LocalOrder({
+        orderIndex: Field(1),
+        order: aliceOrder,
+        nextIndex: Field(0),
+        prevIndex: Field(0),
+      });
+      console.log("localTreeArray",localTreeArray)
+      // localTreeArray[0][1] = [LocalOrder.toFields()]
       // await postData(SellTree.height,emptyTreeArray)
 
 
