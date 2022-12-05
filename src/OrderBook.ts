@@ -201,30 +201,60 @@ class OrderBook extends SmartContract {
     this.SellStorageNumber.set(storedNewRootNumber);
   }
 
-  @method fillSellOrder1(
+  @method fillBuyOrder1(
     order: Order,
-    fill: Order,
-    witness: MyMerkleWitness
+    fill: LocalOrder,
+    fillWitness: MyMerkleWitness,
+    newRoot: Field,
+    storedNewRootNumber: Field,
+    storedNewRootSignature: Signature
   ) {
+        
+    order.isSell.assertFalse();
+    fill.order.isSell.assertTrue();
     // if we get both orders, we can tell if they work. without caring about sellHead order.
     // if user wants to do it his problem?
 
     //however we are probably better off, trying to get the entire offchain server to accept orders to begin with, that just update this hash.
     const sellTreeRoot = this.SellTreeRoot.get();
     this.SellTreeRoot.assertEquals(sellTreeRoot);
-    Circuit.log("OrderBook:fillOrder1:order",order);
-    Circuit.log("OrderBook:fillOrder1:fill",fill);
-    Circuit.log("OrderBook:fillOrder1:witness",witness);
-    Circuit.log("OrderBook:fillOrder1:sellTreeRoot",sellTreeRoot);
+    Circuit.log("OrderBook:fillBuyOrder1:order",order);
+    Circuit.log("OrderBook:fillBuyOrder1:fill",fill);
+    Circuit.log("OrderBook:fillBuyOrder1:sellTreeRoot",sellTreeRoot);
 
-    // ASSUMING im ignoring security, just get the merkles to work first
+    // validate that fill order and next orders are part of selltree root
+    const fillHash: Field = Poseidon.hash(fill.toFields());
+    fillWitness.calculateRoot(fillHash).assertEquals(sellTreeRoot)
+    // validate that the fill and next orders have the right linkedlist indexes
+    // we are matching a buy Order, against a sell LocalOrder.
+    // so the sell MUST be sell head, which means that it should have no prev index
 
-    // i need to verify that all the fills are in the merkle root
+    fill.prevIndex.assertEquals(Field(0));
+
+    const orderHasLessThenFill = order.orderAmount.lt(fill.order.orderAmount);
+    const fillAmount = Circuit.if(orderHasLessThenFill,fill.order.orderAmount,order.orderAmount);
+    fill.order.orderPrice.assertLte(order.orderPrice);
+    // we always use fill.order.orderPrice
+    Circuit.log("OrderBook:fillBuyOrder1:newRoot",newRoot);
+    Circuit.log("OrderBook:fillBuyOrder1:storedNewRootNumber",storedNewRootNumber);
+    Circuit.log("OrderBook:fillBuyOrder1:storedNewRootSignature",storedNewRootSignature);
+    this.TMPupdateSellRoot(
+      newRoot,
+      storedNewRootNumber,
+      storedNewRootSignature
+    )
+    // how to do this?
+
+    Circuit.log("OrderBook:fillBuyOrder1 some magic we pay fill his $ and transfer item to order.maker",fillAmount)
+    // we need to find a mechanism to delete fill from our Selltree.
     
 
-    witness.calculateRoot(fill).assertEquals(sellTreeRoot)
+
     
-    Circuit.log("OrderBook:fillOrder1:fills are part of sellTree root");
+
+
+    
+    
 
 
   }

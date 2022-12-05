@@ -198,7 +198,7 @@ describe('OrderBook.js', () => {
       return SellOrders.get(orderHead)?.prevIndex;
     }
 
-    function getSellOrderBook(): LocalOrder[] {
+    function getOrderedSellOrderBook(): LocalOrder[] {
       let sellOrders: LocalOrder[] = [];
       if (sellHead == Field(0)) {
         console.log('getSellOrderBook sellHead is empty');
@@ -222,6 +222,18 @@ describe('OrderBook.js', () => {
 
         return sellOrders;
       }
+    }
+
+    function getSellOrderbook() : LocalOrder[] {
+      let sellOrders: LocalOrder[] = [];
+      let i = 1;
+      let currentOrder = getSellOrderAtIndex(Field(i));
+      while (currentOrder !== undefined) {
+        sellOrders.push(currentOrder)
+        i++;
+        currentOrder = getSellOrderAtIndex(Field(i));
+      }
+      return sellOrders
     }
 
     function getSellOrderAtIndex(index: Field): (LocalOrder|undefined) {
@@ -342,7 +354,7 @@ describe('OrderBook.js', () => {
     console.log("assertRootUpdateValid failed",currentRoot.toString(),storedNewRoot.toString(),JSON.stringify(updates,null,4))
     throw "RootUpdate not valid"
   };
-  async function postData(height: number,orders: LocalOrder[]): Promise<[Field,Signature]> {
+  async function postData(height: number,orders: LocalOrder[],dontUpdateSellRoot: Bool): Promise<[Field,Signature]> {
 
     // need to convert to items: Array<[string, string[]]
     // console.log("postData called",orders[0].toJSON(),orders[0].hash())
@@ -362,19 +374,28 @@ describe('OrderBook.js', () => {
     }).then((res) => res.json())
 
     // handle local SellTree data update
-    expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+    
     const newRootNumber = Field.fromJSON(postRes.result[0])
     const rootSignature = Signature.fromFields(postRes.result[1].map((s: string) => Field.fromJSON(s)))
-    orders.forEach((order) => {
-      SellTree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
-    })
-    await updateSellRoot(
-      deployer,
-      SellTree.getRoot(),
-      newRootNumber,
-      rootSignature
-    )
-    expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+    if (!(dontUpdateSellRoot.toBoolean())) {
+      // we are setting this tree and actually passing that tree to this function to begin with in the other case
+      expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+      orders.forEach((order) => {
+        SellTree.setLeaf(order.orderIndex.toBigInt(),Poseidon.hash(order.toFields()))
+        if (order.orderIndex !== Field(0)) {
+          SellOrders.set(order.orderIndex,order)
+        }
+      })
+      await updateSellRoot(
+        deployer,
+        SellTree.getRoot(),
+        newRootNumber,
+        rootSignature
+      )
+      expect(zkApp.SellTreeRoot.get()).toStrictEqual(SellTree.getRoot())
+    }
+
+    
     return [newRootNumber,rootSignature]
   }
 
@@ -484,6 +505,78 @@ describe('OrderBook.js', () => {
     }
     return tree.getRoot().toString()
   }
+
+  function getCheapestSellOrder() {
+    // 0n is unused, always start from 1n 
+    let currentCheapestOrder: any = undefined;
+    SellOrders.forEach((order) => {
+      if (order.orderIndex.isZero().toBoolean()) {
+        return
+      }
+      if (currentCheapestOrder == undefined) {
+        currentCheapestOrder = order
+      } else if (order.order.orderPrice < currentCheapestOrder.order.orderPrice) {
+        currentCheapestOrder = order
+      }
+      
+    })
+    return currentCheapestOrder
+  }
+
+     
+
+  async function matchBuyOrderToSellTree(signerKey: PrivateKey,order: Order) {
+    const currentCheapestOffer = getCheapestSellOrder();
+    if (currentCheapestOffer == undefined) {
+      console.error("Cant find sell order to match")
+      return { error: "no sell order to match"}
+    }
+    if (order.orderPrice < currentCheapestOffer.order.orderPrice) {
+      return {error : "cheapest offer:" + currentCheapestOffer.order.orderPrice.toString()}
+    }
+
+
+    // only support entire fills for now
+    if (order.orderAmount < currentCheapestOffer.order.orderAmount) {
+      return { error: "do not support yet"}
+    }
+
+    // we need to delete the fill from localorders and get a witness for that
+    
+    SellOrders.delete(currentCheapestOffer.orderIndex)
+    SellTree.setLeaf(currentCheapestOffer.orderIndex.toBigInt(),Field(0))
+    console.log("matchBuyOrderToSellTree SellOrders",SellOrders)
+    const currentSellOrderBook = getSellOrderbook()
+    console.log("currentSellOrderBook",currentSellOrderBook)
+    const [newRootNumber, rootSignature] = await postData(SellTree.height,currentSellOrderBook,Bool(true))
+
+    await fillBuyOrder1(
+      signerKey,
+      order,
+      currentCheapestOffer,
+      new MyMerkleWitness(SellTree.getWitness(currentCheapestOffer.orderIndex.toBigInt())),
+      SellTree.getRoot(),
+      newRootNumber,
+      rootSignature
+    )
+
+  }
+  async function fillBuyOrder1(
+      signerKey: PrivateKey,
+      order: Order,
+      fill: LocalOrder,
+      witness: MyMerkleWitness,
+      newRoot: Field,
+      storedNewRootNumber: Field,
+      storedNewRootSignature: Signature
+    ) {
+      let tx = await Mina.transaction(signerKey, () => {
+        zkApp.fillBuyOrder1(order,fill,witness,newRoot,storedNewRootNumber,storedNewRootSignature);
+      });
+      await tx.prove();
+      tx.sign([signerKey]);
+      await tx.send();
+    } 
   beforeEach(async () => {
     await isReady;
     let Local = Mina.LocalBlockchain({ proofsEnabled: false });
@@ -544,7 +637,8 @@ describe('OrderBook.js', () => {
       expect(await getData(treeRoot.toString())).toStrictEqual({
         error: "no data for address"
       })
-      const localTreeArray = getEmptyMerkleArray(SellTree.height);
+      // const localTreeArray = getEmptyMerkleArray(SellTree.height); //depre using an empty LocalStorage
+      const localTreeArray = getSellOrderbook()
       
       // // we know its empty, so lets just request store to see if its needed
       const aliceOrder: Order = new Order({
@@ -560,10 +654,10 @@ describe('OrderBook.js', () => {
         prevIndex: Field(0),
       });
 
-      localTreeArray[0] = aliceLocalOrder
+      localTreeArray.push(aliceLocalOrder)
       console.log("SellTree root before add",SellTree.getRoot().toString())
       const oldRootNumber = zkApp.SellStorageNumber.get()
-      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
+      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray,Bool(false))
       expect(oldRootNumber.add(1)).toStrictEqual(newRootNumber)
       const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
       const remoteTreeArray2 = await getData(localCalculatedRoot2)
@@ -579,11 +673,11 @@ describe('OrderBook.js', () => {
 
 
     });
-    it.only('should be able to fillSellOrder1', async() => {
+    it.only('should be able to fillBuyOrder1', async() => {
 
 
       const treeRoot = await zkApp.SellTreeRoot.get()
-      const localTreeArray = getEmptyMerkleArray(SellTree.height);
+      const localTreeArray = getSellOrderbook()
       
       // // we know its empty, so lets just request store to see if its needed
       const aliceOrder: Order = new Order({
@@ -599,11 +693,14 @@ describe('OrderBook.js', () => {
         prevIndex: Field(0),
       });
 
-      localTreeArray[0] = aliceLocalOrder
+      localTreeArray.push(aliceLocalOrder)
       const oldRootNumber = zkApp.SellStorageNumber.get()
-      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray)
+      const [newRootNumber, rootSignature] = await postData(SellTree.height,localTreeArray,Bool(false))
       const localCalculatedRoot2 = getTreeRootFromMerkleArray(SellTree.height,localTreeArray)
       const remoteTreeArray2 = await getData(localCalculatedRoot2)
+      expect(oldRootNumber.add(1)).toStrictEqual(newRootNumber)
+      expect(remoteTreeArray2).toStrictEqual(localTreeArray)
+
 
       // sellHead needs to be correct
       const bobOrder: Order = new Order({
@@ -612,7 +709,9 @@ describe('OrderBook.js', () => {
         orderPrice: Field(100),
         isSell: Bool(false),
       })
-      console.log("bah")
+      const marchOrderRes = await matchBuyOrderToSellTree(bobPrivateKey,bobOrder)
+      console.log("marchOrderRes",marchOrderRes)
+      expect(marchOrderRes?.error).toBe(undefined)
     });
     
 

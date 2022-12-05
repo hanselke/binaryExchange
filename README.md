@@ -12,28 +12,27 @@ This template uses TypeScript.
 2) Onchain Orderbook functionality that deps on 1)
     a) this should be somehow integrated into 1's offchain receive need update orders process.
         1) use a watcher? but thats lame and slow. must be a better way
-## TODOs
-
-Critical Q) Assuming we're only dealing with readonlys of offchain orderbook.
-
-The purpose is to build into the fillOrder function, some sort of verification that
-
-I want my orderbook data to run faster then minaprotocol runs.
-
-So that means that while offchain storage would keep sending tx's to update, it'll be a while before clients can confirm if my offchain storage updates are valid?
-
-They'll have to trust me that i didnt muck around on the offchain server side?
+## Milestones
 
 
-1) figure out how the offchain data can interact with the smart contract restrictions
+#### 1 client depends on smart contract to verify that LocalOrder[] and sell/buy trees are latest* and valid
 
+Hack quality
 
-2) fillOrder in OrderBook smart contract
+EndUser browser app
+    Non-zkFeatures
+    - [] get /data from offchain rest api and construct + maintain your own local state of data
+        - [] socket connection to offchain restAPI get /data
 
-LATER) Offchain server must be made reliable
-https://github.com/es92/zkApp-offchain-storage/blob/main/src/storageServer.ts
+    zkFeatures
+    - [] fillOrder
+        - CAN we put the entire function in zk? I cant even make it accept arrays as inputs.
+        - min version is to match to one fill at a time
 
-currently uses a flat file on the server. could setup a kafka based HA storage?
+offchain REST API 
+- [x] post /data api that returns a new treeHead and signature + stored number
+- [x] get /data api that returns LocalOrder
+    - [] expose a socket connection to client
 
 
 
