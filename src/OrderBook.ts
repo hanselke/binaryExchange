@@ -120,6 +120,8 @@ class OrderBook extends SmartContract {
   @state(PublicKey) StorageServerPublicKey = State<PublicKey>();
   @state(Field) SellStorageNumber = State<Field>();
   @state(Field) SellTreeRoot = State<Field>();
+  @state(PublicKey) Token1 = State<PublicKey>();
+  @state(PublicKey) Token2 = State<PublicKey>();
 
   deploy() {
     super.deploy();
@@ -129,12 +131,14 @@ class OrderBook extends SmartContract {
     });
   }
 
-  @method initState(StorageServerPublicKey: PublicKey) {
+  @method initState(StorageServerPublicKey: PublicKey,_Token1: PublicKey,_Token2: PublicKey) {
     this.StorageServerPublicKey.set(StorageServerPublicKey);
     this.SellStorageNumber.set(Field.zero);
     const emptyTreeRoot = Field("14472842460125086645444909368571209079194991627904749620726822601198914470820");
     //precalculated empty merkle tree of LocalOrder[] height 8
     this.SellTreeRoot.set(emptyTreeRoot);
+    this.Token1.set(_Token1);
+    this.Token2.set(_Token2);
   }
   @method TMPupdateSellRoot(
     newRoot: Field,

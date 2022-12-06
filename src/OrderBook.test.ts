@@ -1,4 +1,6 @@
 import { OrderBook, Order, MyMerkleWitness,LeafUpdate,LocalOrder } from './OrderBook';
+import { MyToken } from "./Token";
+
 import {
   isReady,
   shutdown,
@@ -12,7 +14,8 @@ import {
   MerkleTree,
   Circuit,
   Poseidon,
-  Signature
+  Signature,
+  UInt64
 } from 'snarkyjs';
 
 
@@ -27,9 +30,54 @@ describe('OrderBook.js', () => {
     tomPrivateKey: PrivateKey,
     storageServerPublicKey: PublicKey
 
-  
-  
+  let token1ZkappKey: PrivateKey;
+  let token1ZkappAddress: PublicKey;
+  let token1Zkapp: MyToken;
+  let token1Id: Field;
+    
+  let token2ZkappKey: PrivateKey;
+  let token2ZkappAddress: PublicKey;
+  let token2Zkapp: MyToken;
+  let token2Id: Field;
+ 
+  async function mintToken(
+    zkApp: MyToken,
+    targetAddress: PublicKey,
+    zkAppPrivateKey: PrivateKey,
+    account: PrivateKey
+  ) {
+    let tx = await Mina.transaction(account, () => {
+      AccountUpdate.fundNewAccount(account); // because target hasnt got a valid account yet?
+      zkApp.mint(targetAddress,UInt64.from(10000))
+      zkApp.sign(zkAppPrivateKey)
+    });
+    await tx.send();
 
+  }
+
+  async function sendStableCoin(
+    zkApp: MyToken,
+    account: PrivateKey,
+    stableCoinKey: PrivateKey,
+    fromKey: PrivateKey,
+    fromAddress: PublicKey,
+    targetAddress: PublicKey,
+    amount: UInt64
+  
+   
+  ) {
+    let tx = await Mina.transaction(account, () => {
+      zkApp.token.send({
+        from: fromAddress,
+        to: targetAddress,
+        amount: amount,
+      });
+      AccountUpdate.attachToTransaction(zkApp.self);
+      zkApp.sign(stableCoinKey);
+    });
+    tx.sign([fromKey]);
+    await tx.send();
+  }
   const storageServerAddress = "http://127.0.0.1:3001"
   
     // this serves as our offchain in memory storage
@@ -242,10 +290,12 @@ describe('OrderBook.js', () => {
 
     async function initState(
       signerKey: PrivateKey,
-      StorageServerPublicKey: PublicKey
+      StorageServerPublicKey: PublicKey,
+      _Token1: PublicKey,
+      _Token2: PublicKey
     ) {
       let tx = await Mina.transaction(signerKey, () => {
-        zkApp.initState(StorageServerPublicKey);
+        zkApp.initState(StorageServerPublicKey,_Token1,_Token2);
       });
       await tx.prove();
       tx.sign([signerKey]);
@@ -586,6 +636,9 @@ describe('OrderBook.js', () => {
     bobPrivateKey = Local.testAccounts[2].privateKey;
     janePrivateKey = Local.testAccounts[3].privateKey;
     tomPrivateKey = Local.testAccounts[4].privateKey;
+
+
+    
     zkAppPrivateKey = PrivateKey.random();
     zkAppAddress = zkAppPrivateKey.toPublicKey();
     zkApp = new OrderBook(zkAppAddress);
@@ -602,8 +655,23 @@ describe('OrderBook.js', () => {
         throw err
       })
     )
-    await initState(deployer,storageServerPublicKey)
 
+
+    token1ZkappKey = PrivateKey.random();
+    token1ZkappAddress = token1ZkappKey.toPublicKey();
+    token1Zkapp = new MyToken(token1ZkappAddress);
+    token1Id = token1Zkapp.token.id;
+    await deployStableCoin(token1Zkapp,token1ZkappKey,deployer)
+
+
+    token2ZkappKey = PrivateKey.random();
+    token2ZkappAddress = token2ZkappKey.toPublicKey();
+    token2Zkapp = new MyToken(token2ZkappAddress);
+    token2Id = token2Zkapp.token.id;
+    await deployStableCoin(token2Zkapp,token2ZkappKey,deployer)
+
+
+    await initState(deployer,storageServerPublicKey,token1ZkappAddress,token2ZkappAddress)
 
 
   });
@@ -611,6 +679,51 @@ describe('OrderBook.js', () => {
   afterAll(() => {
     setTimeout(shutdown, 0);
   });
+
+  describe.only('Tokens',() => {
+    test('deployed token contract exists in the ledger', () => {
+      expect(Mina.getAccount(token1ZkappAddress, token1Id)).toBeDefined();
+      const totalAmountInCirculation = token1Zkapp.totalAmountInCirculation.get();
+      expect(totalAmountInCirculation.toBigInt()).toEqual(10_000n)
+      expect(
+        Mina.getBalance(token1ZkappAddress,token1Id).toBigInt()
+      ).toEqual(10_000n)
+    });
+    test('create a valid token with a different parentTokenId', async () => {
+      const newToken =  new MyToken(zkAppAddress,token1Id);
+      expect(newToken.tokenId).toEqual(token1Id)
+
+    });
+    test('can mint and transfer stableCoin', async () => {
+      await mintToken(token1Zkapp,alicePrivateKey.toPublicKey(),token1ZkappKey,deployer)
+      expect(
+        Mina.getBalance(alicePrivateKey.toPublicKey(),token1Id).toBigInt()
+      ).toEqual(10_000n)
+
+      await mintToken(token1Zkapp,bobPrivateKey.toPublicKey(),token1ZkappKey,deployer)
+      expect(
+        Mina.getBalance(bobPrivateKey.toPublicKey(),token1Id).toBigInt()
+      ).toEqual(10_000n)
+
+      await sendStableCoin(
+        token1Zkapp,
+        deployer,
+        token1ZkappKey,
+        alicePrivateKey,
+        alicePrivateKey.toPublicKey(),
+        bobPrivateKey.toPublicKey(),
+        UInt64.from(100)
+        )
+        expect(
+          Mina.getBalance(alicePrivateKey.toPublicKey(),token1Id).toBigInt()
+        ).toEqual(9_900n)
+  
+        expect(
+          Mina.getBalance(bobPrivateKey.toPublicKey(),token1Id).toBigInt()
+        ).toEqual(10_100n)
+
+    });
+  })
   describe('OrderBook()', () => {
 
   
@@ -673,7 +786,7 @@ describe('OrderBook.js', () => {
 
 
     });
-    it.only('should be able to fillBuyOrder1', async() => {
+    it('should be able to fillBuyOrder1', async() => {
 
 
       const treeRoot = await zkApp.SellTreeRoot.get()
@@ -718,6 +831,7 @@ describe('OrderBook.js', () => {
   });
 });
 
+
 async function deploy(
   zkApp: OrderBook,
   zkAppPrivateKey: PrivateKey,
@@ -731,3 +845,24 @@ async function deploy(
   // this tx needs .sign(), because `deploy()` adds an account update that requires signature authorization
   await tx.sign([zkAppPrivateKey]).send();
 }
+
+
+async function deployStableCoin(
+  tokenzkApp: MyToken,
+  zkAppPrivateKey: PrivateKey,
+  account: PrivateKey
+) {
+  let tx = await Mina.transaction(account, () => {
+    let feePayerUpdate = AccountUpdate.createSigned(account);
+    feePayerUpdate.balance.subInPlace(Mina.accountCreationFee().mul(1));
+    feePayerUpdate.send({
+      to: zkAppPrivateKey.toPublicKey(),
+      amount: Mina.accountCreationFee(),
+    });
+    tokenzkApp.deploy();
+  });
+  await tx.prove();
+  tx.sign([zkAppPrivateKey]);
+  await tx.send();
+}
+
